@@ -87,6 +87,8 @@ Format:
 ```
 ## Validation Result: FAILED
 
+> AI-generated content.
+
 **Type**: <bug | story | general_task>
 
 **Missing or insufficient information:**
@@ -119,6 +121,8 @@ Format:
 
 ```
 ## Validation Result: PASSED
+
+> AI-generated content.
 
 **Type**: <bug | story | general_task>
 

@@ -95,6 +95,8 @@ the work. Format it exactly as follows:
 ```
 ## Implementation Decision Log
 
+> AI-generated content.
+
 ### [Short title of decision]
 - **Consideration**: What trade-off, uncertainty, or option was evaluated.
 - **Decision**: What was chosen.

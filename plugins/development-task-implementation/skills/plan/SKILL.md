@@ -82,6 +82,8 @@ Use this exact format:
 ```
 ## Plan
 
+> AI-generated content.
+
 ### Tasks
 
 | id | description | blocked_by |
@@ -116,6 +118,8 @@ Use this exact format:
 
 ```
 ## Plan: BLOCKED
+
+> AI-generated content.
 
 **Fatal error**: <one-sentence summary of why planning cannot proceed>
 
