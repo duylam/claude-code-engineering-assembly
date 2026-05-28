@@ -1,0 +1,9 @@
+{
+  "name": "development-task-implementation",
+  "description": "A structured workflow for software development tasks: validate requirements for completeness and clarity, decompose them into an ordered dependency-aware implementation plan, and coordinate full execution via subagents with frequent commits. Handles bugs, stories, and general tasks from inline text or remote URLs (JIRA, GitHub Issues, Linear).",
+  "version": "1.0.0",
+  "author": {
+    "name": "Duy Lam",
+    "email": "sej5h73eq@mozmail.com"
+  }
+}

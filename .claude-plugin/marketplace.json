@@ -1,0 +1,18 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "engineering-assembly",
+  "description": "Directory of popular Claude Code extensions including development and productivity tools.",
+  "owner": {
+    "name": "Duy Lam",
+    "email": "sej5h73eq@mozmail.com"
+  },
+  "plugins": [
+    {
+      "name": "development-task-implementation",
+      "description": "A structured validate → plan → implement workflow for software development tasks. Validates requirement completeness, decomposes into dependency-aware task lists, and coordinates implementation via subagents with frequent commits. Supports inline text and remote URLs (JIRA, GitHub, Linear).",
+      "category": "development",
+      "source": "./plugins/development-task-implementation",
+      "homepage": "https://github.com/duylam/claude-code-engineering-assembly/tree/main/plugins/development-task-implementation"
+    }
+  ]
+}
