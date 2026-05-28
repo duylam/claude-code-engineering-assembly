@@ -33,21 +33,18 @@ If `task_requirement` is **inline text**, read it carefully and identify:
 - What "done" looks like (acceptance criteria, if any)
 - Any explicit constraints (tech stack, file locations, do-not-touch areas)
 
-## Step 2 — Explore the Codebase
+## Step 2 — Plan
 
-Before writing a single line, understand where the relevant code lives. Spawn a
-**cavecrew-investigator** subagent (if available) or do this inline:
+Determine whether `task_requirement` already contains an explicit plan:
 
-- Find files, modules, and patterns related to the task
-- Identify the entry points, data models, and interfaces you will need to touch
-- Note any existing tests, CI checks, or lint rules that must stay green
+- **Plan already present** — if the requirement includes a task breakdown (e.g., a table with `id`,
+  `description`, and `blocked_by` columns, or a numbered implementation checklist), use it directly
+  and skip spawning a planner.
+- **No plan present** — spawn a **foreground Plan subagent**. Pass it the
+  full requirement text (or fetched content if it was a URL). Wait for the plan to complete before
+  proceeding — you need it to drive execution.
 
-Capture your findings as a short mental model — you will use this to delegate work accurately.
-
-## Step 3 — Plan and Delegate
-
-Break the task into logical, independently-completable units of work. For each unit, choose the
-right subagent type:
+Once you have the plan, execute each task by spawning the appropriate subagents:
 
 | Work type | Preferred subagent |
 |---|---|
@@ -57,12 +54,13 @@ right subagent type:
 | General multi-file changes | Standard subagent with full context |
 
 Spawn subagents with precise instructions: what to do, which files to touch, where to save output,
-and what constraints to respect. Prefer smaller, focused tasks over large monolithic ones — they
-complete faster, produce better output, and are easier to commit incrementally.
+and what constraints to respect. Respect the `blocked_by` dependencies in the plan — don't start a
+task until its blockers are complete. Prefer smaller, focused tasks over large monolithic ones —
+they complete faster, produce better output, and are easier to commit incrementally.
 
 If the task is small enough that spawning subagents adds no value, do the work yourself inline.
 
-## Step 4 — Integrate and Commit Frequently
+## Step 3 — Integrate and Commit Frequently
 
 As subagents finish their work, integrate their output:
 
@@ -80,7 +78,7 @@ As subagents finish their work, integrate their output:
 > Frequent commits protect work in progress and make the eventual PR review much easier for the
 > human to follow.
 
-## Step 5 — Pull Request (only if explicitly required)
+## Step 4 — Pull Request (only if explicitly required)
 
 Only create a Pull Request if the task description or the remote ticket **explicitly requests one**
 (e.g., "open a PR", "submit for review", "create a pull request"). Otherwise, leave the work
@@ -89,7 +87,7 @@ committed on the current branch and skip this step.
 When a PR is needed, use the `commit-commands:commit-push-pr` skill or `gh pr create` with a
 descriptive title and body that links back to the original ticket.
 
-## Step 6 — Report Decisions
+## Step 5 — Report Decisions
 
 After implementation is complete, produce a **Decision Log** covering the key choices made during
 the work. Format it exactly as follows:
