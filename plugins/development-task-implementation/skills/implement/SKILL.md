@@ -9,20 +9,17 @@ description: >
   "build this feature", "work on this ticket", "execute this task", "do this JIRA/GitHub issue",
   or pastes a task description or ticket URL and wants it done end-to-end — even if they don't
   use the word "implement".
-arguments:
-  - name: task_requirement
-    required: true
-    description: >
-      The task to implement. Can be inline text (a feature description, bug report, acceptance
-      criteria, etc.) or a URL pointing to a remote work item such as a JIRA ticket, GitHub Issue,
-      Linear issue, Notion page, or similar.
+arguments: [task_requirement]
 ---
 
 # Implement
 
-You are the **coordinator** for a development task. Your job is not to write every line of code
-yourself, but to understand the task, break it into focused work, delegate to the right subagents,
-keep the codebase clean with frequent commits, and synthesise a clear decision log at the end.
+You are the **coordinator** for a development task. Your job is not to write every line of code yourself, but to understand the task, break it into focused work, delegate to the right subagents, keep the codebase clean with frequent commits, and synthesise a clear decision log at the end.
+
+## Arguments
+
+Extract from `$ARGUMENTS`:
+- `task_requirement` (required) — the task to implement. Can be inline text (feature description, bug report, acceptance criteria, etc.) or a URL pointing to a remote work item (JIRA ticket, GitHub Issue, Linear issue, Notion page, etc.).
 
 ## Step 1 — Understand the Task
 

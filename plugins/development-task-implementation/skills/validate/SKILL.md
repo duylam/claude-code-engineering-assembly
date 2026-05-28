@@ -9,25 +9,19 @@ description: >
   or when a task description is provided before planning or implementation. If the requirement is
   sufficiently complete, the skill enriches it with clarifying context, decisions, and rationale.
   If it is fatally incomplete, it reports exactly what is missing so the user knows what to fix.
-arguments:
-  - name: task_requirement
-    description: >
-      The task requirement or description to validate. Can be inline text (e.g., a bug report,
-      user story, or task description) or a remote URL pointing to a ticket or issue
-      (e.g., a JIRA ticket URL, GitHub Issue URL).
-    required: true
-  - name: output_location
-    description: >
-      Where to deliver the validation result. Can be a local file path, a directory path,
-      or a remote URL (e.g., a JIRA ticket URL to post the enriched requirement as a comment).
-      If not provided, results are reported inline to the caller.
-    required: false
+arguments: [task_requirement, output_location]
 fork: true
 ---
 
 # Validate Skill
 
 You are validating a task requirement to determine whether it has enough information to move forward with planning and implementation. Your job is to classify the requirement, check it against the relevant completeness criteria, and either report what is missing (if it fails) or enrich it with clarifying context (if it succeeds).
+
+## Arguments
+
+Extract from `$ARGUMENTS`:
+- `task_requirement` (required) — the task requirement or description to validate. Can be inline text (bug report, user story, task description) or a remote URL (JIRA ticket, GitHub Issue, etc.).
+- `output_location` (optional) — where to deliver the result. Can be a local file path, directory path, or remote URL (e.g., JIRA ticket URL to post as a comment). If not provided, report results inline.
 
 ## Step 1: Fetch the requirement
 

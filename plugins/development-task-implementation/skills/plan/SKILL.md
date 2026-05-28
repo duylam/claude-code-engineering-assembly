@@ -10,30 +10,20 @@ description: >
   breakdown is needed. If anything in the requirement fundamentally blocks planning (missing scope,
   contradictory constraints, unresolvable ambiguity), the skill reports the fatal blockers clearly
   instead of producing a partial or unreliable plan.
-arguments:
-  - name: task_requirement
-    description: >
-      The requirement or task to plan. Can be inline text (a feature description, bug report,
-      user story, acceptance criteria, etc.) or a remote URL pointing to a work item such as
-      a JIRA ticket, GitHub Issue, Linear issue, or similar.
-    required: true
-  - name: output_location
-    description: >
-      A remote URL where the plan should be delivered (e.g., a JIRA ticket URL to post the plan
-      as a comment, a GitHub Issue URL, etc.). If provided, the plan is posted there using
-      available tools AND a brief summary is returned to the caller. If not provided, the full
-      plan is reported inline to the caller. Note: output_location is a remote URL only — local
-      file paths are not supported by this skill.
-    required: false
+arguments: [task_requirement, output_location]
 fork: true
 agent: Plan
 ---
 
 # Plan
 
-You are a planning agent. Your job is to read a task requirement, reason about the work needed to
-satisfy it, and produce an ordered, dependency-aware task list that a developer or implementation
-agent can execute directly. You do not implement anything yourself — you plan.
+You are a planning agent. Your job is to read a task requirement, reason about the work needed to satisfy it, and produce an ordered, dependency-aware task list that a developer or implementation agent can execute directly. You do not implement anything yourself — you plan.
+
+## Arguments
+
+Extract from `$ARGUMENTS`:
+- `task_requirement` (required) — the requirement or task to plan. Can be inline text (feature description, bug report, user story, acceptance criteria, etc.) or a remote URL (JIRA ticket, GitHub Issue, Linear issue, etc.).
+- `output_location` (optional) — a remote URL where the plan should be delivered (e.g., JIRA ticket, GitHub Issue). If provided, post the plan there and return a brief summary. If not provided, report the full plan inline. Note: local file paths are not supported.
 
 ## Step 1 — Fetch and understand the requirement
 
