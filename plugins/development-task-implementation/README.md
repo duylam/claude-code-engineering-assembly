@@ -10,9 +10,20 @@ Development tasks fail most often not because the code is wrong, but because tea
 validate → plan → implement
 ```
 
-`/validate` checks whether a requirement is ready to act on and enriches it. `/plan` decomposes the requirement into an ordered, dependency-aware task list. `/implement` coordinates execution via subagents and keeps the history clean with frequent commits. Each step can be invoked independently — run all three in sequence or jump straight to the one you need.
+`/validate` checks whether a requirement is ready to act on and enriches it. `/plan` decomposes the requirement into an ordered, dependency-aware task list. `/implement` coordinates execution via subagents and keeps the history clean with frequent commits. Each step can be invoked independently — or run all three in one shot with `/full-implement`.
 
 All three skills accept inline text or remote URLs (JIRA tickets, GitHub Issues, Linear items, etc.).
+
+## Commands
+
+### `/full-implement [task_requirement] [output_location?]`
+
+Runs the full `validate → plan → implement` pipeline in one shot. Stops at the first fatal blocker and surfaces it to the user — no partial work is silently discarded.
+
+| Argument | Required | Description |
+|---|---|---|
+| `task_requirement` | yes | Inline text or remote URL (JIRA, GitHub Issue, etc.) |
+| `output_location` | no | File path, directory, or remote URL. Passed through to each stage that supports it. |
 
 ## Skills
 
@@ -65,6 +76,14 @@ Coordinates full implementation of a task. Acts as a coordinator: spawns investi
 ```
 
 ## Recommended workflow
+
+One shot:
+
+```
+/full-implement "https://jira.example.com/browse/PROJ-123"
+```
+
+Or step by step:
 
 ```
 /validate "https://jira.example.com/browse/PROJ-123"
