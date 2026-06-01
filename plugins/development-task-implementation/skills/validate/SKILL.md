@@ -10,7 +10,13 @@ description: >
   sufficiently complete, the skill enriches it with clarifying context, decisions, and rationale.
   If it is fatally incomplete, it reports exactly what is missing so the user knows what to fix.
 arguments: [task_requirement, output_location]
-fork: true
+argument-hint: "[task description or ticket URL] [output location (optional)]"
+when_to_use: >
+  Also invoke when a ticket seems vague or under-specified before investing time to plan or
+  implement it, when the user is unsure a requirement is complete enough to hand off, or when
+  they ask "does this have enough detail", "is this ticket ready", or "what's missing here".
+context: fork
+agent: general-purpose
 ---
 
 # Validate Skill

@@ -11,7 +11,12 @@ description: >
   contradictory constraints, unresolvable ambiguity), the skill reports the fatal blockers clearly
   instead of producing a partial or unreliable plan.
 arguments: [task_requirement, output_location]
-fork: true
+argument-hint: "[task description or ticket URL] [output URL (optional)]"
+when_to_use: >
+  Also invoke before implementation begins to make dependencies explicit, when estimating scope or
+  preparing a sprint, or when the user asks "how long will this take", "what's involved", or "what
+  order should we do this in" — a plan up front prevents rework and parallelises execution.
+context: fork
 agent: Plan
 ---
 

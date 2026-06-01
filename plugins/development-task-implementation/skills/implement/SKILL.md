@@ -10,6 +10,12 @@ description: >
   or pastes a task description or ticket URL and wants it done end-to-end — even if they don't
   use the word "implement".
 arguments: [task_requirement]
+argument-hint: "[task description or ticket URL]"
+when_to_use: >
+  Also invoke when the user drops a ticket URL into the conversation expecting it to be worked on,
+  shares acceptance criteria and wants them satisfied, or uses intent-driven phrasing like "can you
+  handle this", "take care of this", "make this happen", or "get this done" — intent matters more
+  than exact wording.
 ---
 
 # Implement
