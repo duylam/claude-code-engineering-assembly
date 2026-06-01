@@ -37,9 +37,11 @@ If `task_requirement` is **inline text**, read it carefully and identify:
 
 Determine whether `task_requirement` already contains an explicit plan:
 
-- **Plan already present** — if the requirement includes a task breakdown (e.g., a table with `id`,
-  `description`, and `blocked_by` columns, or a numbered implementation checklist), use it directly
-  and skip spawning a planner.
+- **Plan already present** — if the requirement includes a task breakdown or anything that plays the
+  same role — a numbered checklist, a table of steps, a section labelled "solution", "approach",
+  "design", "proposal", or similar — treat it as the plan. Use it directly (or refine it if it is
+  incomplete) and skip spawning a planner. The label doesn't matter; what matters is whether the
+  requirement already tells you *what to do and in what order*.
 - **No plan present** — spawn a **foreground Plan subagent**. Pass it the
   full requirement text (or fetched content if it was a URL). Wait for the plan to complete before
   proceeding — you need it to drive execution.
