@@ -1,3 +1,7 @@
+### Custom
+.claude/plans/
+.tmp/
+
 ### macOS
 # Finder metadata
 .DS_Store
@@ -17,4 +21,4 @@ Icon
 .Trashes
 .VolumeIcon.icns
 .com.apple.timemachine.donotpresent
-.tmp/
+
