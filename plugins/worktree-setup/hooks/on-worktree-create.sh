@@ -24,6 +24,14 @@ if [[ -z "$repo_dir" || "$repo_dir" == "null" || -z "$name" || "$name" == "null"
     exit 1
 fi
 
+# Prefer git's own idea of the repo root over the raw cwd, in case cwd is a
+# subdirectory of the repo rather than its top-level.
+if command -v git >/dev/null 2>&1; then
+    if resolved_repo_dir="$(git rev-parse --show-toplevel 2>/dev/null)" && [[ -n "$resolved_repo_dir" ]]; then
+        repo_dir="$resolved_repo_dir"
+    fi
+fi
+
 worktree_dir="$repo_dir/.worktrees/$name"
 
 echo "Creating worktree at $worktree_dir..." >&2
@@ -41,4 +49,11 @@ if [[ -f "$worktree_dir/.gitmodules" ]]; then
 fi
 
 # Only the path goes to stdout — Claude Code uses this as the worktree cwd.
-echo "$worktree_dir"
+# If CLAUDE_PROJECT_DIR points at a subdirectory of the repo, preserve that
+# same relative subdirectory inside the new worktree.
+if [[ -n "${CLAUDE_PROJECT_DIR:-}" && "$CLAUDE_PROJECT_DIR" == "$repo_dir"/* ]]; then
+    rel_path="${CLAUDE_PROJECT_DIR#"$repo_dir"/}"
+    echo "$worktree_dir/$rel_path"
+else
+    echo "$worktree_dir"
+fi
