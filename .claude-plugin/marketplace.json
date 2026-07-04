@@ -13,6 +13,13 @@
       "category": "development",
       "source": "./plugins/development-task-implementation",
       "homepage": "https://github.com/duylam/claude-code-engineering-assembly/tree/main/plugins/development-task-implementation"
+    },
+    {
+      "name": "worktree-setup",
+      "description": "Packages a WorktreeCreate hook so `claude --worktree <name>` creates a branch, places the worktree under .worktrees/<name>, and initializes submodules — no per-repo setup.",
+      "category": "development",
+      "source": "./plugins/worktree-setup",
+      "homepage": "https://github.com/duylam/claude-code-engineering-assembly/tree/main/plugins/worktree-setup"
     }
   ]
 }

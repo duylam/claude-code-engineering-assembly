@@ -1,8 +1,8 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "env": {
-    "MAX_THINKING_TOKENS": "5000",
-    "CLAUDE_CODE_SUBAGENT_MODEL": "haiku"
+    "MAX_THINKING_TOKENS": "10000",
+    "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet"
   },
   "permissions": {
     "defaultMode": "bypassPermissions"
@@ -11,7 +11,8 @@
   "enabledPlugins": {
     "caveman@caveman": true,
     "commit-commands@claude-plugins-official": true,
-    "skill-creator@claude-plugins-official": true
+    "skill-creator@claude-plugins-official": true,
+    "plugin-dev@claude-plugins-official": true
   },
   "extraKnownMarketplaces": {
     "caveman": {
@@ -22,8 +23,6 @@
     }
   },
   "alwaysThinkingEnabled": true,
-  "effortLevel": "high",
-  "attribution": {
-    "commit": "Generated with Claude Code\n\nCo-Authored-By: Claude <noreply@anthropic.com>"
-  }
+  "plansDirectory": ".claude/plans",
+  "effortLevel": "high"
 }

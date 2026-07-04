@@ -10,6 +10,10 @@ A Claude Code marketplace of plugins for software engineering workflows.
 
 A structured validate → plan → implement workflow for software development tasks. Validates requirement completeness, decomposes into dependency-aware task lists, and coordinates implementation via subagents with frequent commits. Supports inline text and remote URLs (JIRA, GitHub, Linear).
 
+### [worktree-setup](plugins/worktree-setup)
+
+Packages a `WorktreeCreate` hook so `claude --worktree <name>` creates a branch, places the worktree under `.worktrees/<name>`, and initializes submodules — no per-repo setup.
+
 ## Installation
 
 Add this marketplace to Claude Code:
