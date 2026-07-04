@@ -10,8 +10,10 @@ worktree is created. Without a hook, Claude Code falls back to its default behav
 plugin installs a hook that **replaces** the default with:
 
 1. Create branch `<name>` and a worktree at `.worktrees/<name>` under the repo root.
-2. Initialize and update git submodules inside the new worktree (`git submodule update
-   --init --recursive`).
+2. If the worktree has submodules (`.gitmodules` present), initialize and update them
+   (`git submodule update --init --recursive`), then check each one out onto a local branch
+   named `<name>` (`git checkout -B <name>`) instead of leaving it on a detached HEAD — so
+   submodules sit on the same branch as the parent worktree.
 3. Report the new worktree's absolute path back to Claude Code, which then uses it as the
    working directory for the session.
 
@@ -37,7 +39,8 @@ This creates:
 ```
 <repo-root>/
 └── .worktrees/
-    └── my-feature/    # new worktree, branch `my-feature`, submodules initialized
+    └── my-feature/    # new worktree, branch `my-feature`
+                       # submodules (if any) initialized and checked out on branch `my-feature`
 ```
 
 Claude Code then runs the session with `.worktrees/my-feature` as the working directory.
@@ -60,4 +63,7 @@ Claude Code then runs the session with `.worktrees/my-feature` as the working di
   to your repo's `.gitignore`.
 - If a branch or worktree with the same `name` already exists, `git worktree add -b` will
   fail — pick a fresh name or clean up the old worktree/branch first.
-- If your repo has no submodules, the submodule step is a harmless no-op.
+- If your repo has no `.gitmodules`, the submodule step is skipped entirely.
+- Each submodule (recursively) is left checked out on a local branch named `<name>`, not a
+  detached HEAD — re-running with the same `name` in a submodule that already has that
+  branch will reset it (`checkout -B`) to the currently recorded commit.

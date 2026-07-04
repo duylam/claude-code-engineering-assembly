@@ -29,8 +29,16 @@ worktree_dir="$repo_dir/.worktrees/$name"
 echo "Creating worktree at $worktree_dir..." >&2
 git -C "$repo_dir" worktree add -b "$name" "$worktree_dir" >&2
 
-echo "Populating submodules..." >&2
-git -C "$worktree_dir" submodule update --init --recursive >&2
+if [[ -f "$worktree_dir/.gitmodules" ]]; then
+    echo "Populating submodules..." >&2
+    git -C "$worktree_dir" submodule update --init --recursive >&2
+
+    # submodule update leaves each submodule on a detached HEAD; check each
+    # one out onto a local branch matching the worktree name so submodule
+    # work stays on the same branch as the parent worktree.
+    echo "Checking out submodules onto branch $name..." >&2
+    git -C "$worktree_dir" submodule foreach --recursive "git checkout -B '$name'" >&2
+fi
 
 # Only the path goes to stdout — Claude Code uses this as the worktree cwd.
 echo "$worktree_dir"
