@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "development-task-implementation",
-      "description": "A structured validate → plan → implement workflow for software development tasks. Validates requirement completeness, decomposes into dependency-aware task lists, and coordinates implementation via subagents with frequent commits. Supports inline text and remote URLs (JIRA, GitHub, Linear).",
+      "description": "A structured validate → plan workflow for software development tasks, plus QA test automation. Validates requirement completeness, decomposes into dependency-aware task lists, and runs manual test cases on web (playwright-cli) or Android (adb) via the automation-expert agent.",
       "category": "development",
       "source": "./plugins/development-task-implementation",
       "homepage": "https://github.com/duylam/claude-code-engineering-assembly/tree/main/plugins/development-task-implementation"

@@ -1,37 +1,46 @@
 ---
 name: validate
 description: >
-  Validates and enriches a task requirement (bug, story, or general task) before implementation begins.
-  Use this skill whenever a task requirement, ticket description, user story, bug report, or work item
-  needs to be reviewed for completeness and clarity — whether provided as inline text or as a remote URL
-  (JIRA ticket, GitHub Issue, etc.). Invoke validate when the user says "validate this ticket",
-  "check this requirement", "is this ready to implement", "review this story", "validate this bug",
-  or when a task description is provided before planning or implementation. If the requirement is
-  sufficiently complete, the skill enriches it with clarifying context, decisions, and rationale.
-  If it is fatally incomplete, it reports exactly what is missing so the user knows what to fix.
+  Checks whether a task requirement (bug, story, or general task) has enough information to move
+  forward with planning. Use this skill whenever a task requirement, user story, bug report, or
+  work item needs to be reviewed for completeness and clarity before planning or implementation.
+  Invoke validate when the user says "validate this requirement", "check this requirement", "is
+  this ready to implement", "review this story", "validate this bug", or provides a task
+  description and wants to know if it's ready to hand off. Requires the task requirement text
+  itself — it does not fetch tickets from Jira or any other tracker.
 arguments: [task_requirement, output_location]
-argument-hint: "[task description or ticket URL] [output location (optional)]"
+argument-hint: "[task requirement text] [output location (optional)]"
 when_to_use: >
-  Also invoke when a ticket seems vague or under-specified before investing time to plan or
+  Also invoke when a requirement seems vague or under-specified before investing time to plan or
   implement it, when the user is unsure a requirement is complete enough to hand off, or when
-  they ask "does this have enough detail", "is this ticket ready", or "what's missing here".
+  they ask "does this have enough detail", "is this ready", or "what's missing here".
 context: fork
 agent: general-purpose
 ---
 
 # Validate Skill
 
-You are validating a task requirement to determine whether it has enough information to move forward with planning and implementation. Your job is to classify the requirement, check it against the relevant completeness criteria, and either report what is missing (if it fails) or enrich it with clarifying context (if it succeeds).
+You are checking whether a task requirement has enough information to move forward with planning. Your job is to classify the requirement, check it against the relevant completeness criteria, and report the result — either exactly what is missing (if it fails) or confirmation that it's ready (if it succeeds).
 
 ## Arguments
 
 Extract from `$ARGUMENTS`:
-- `task_requirement` (required) — the task requirement or description to validate. Can be inline text (bug report, user story, task description) or a remote URL (JIRA ticket, GitHub Issue, etc.).
-- `output_location` (optional) — where to deliver the result. Can be a local file path, directory path, or remote URL (e.g., JIRA ticket URL to post as a comment). If not provided, report results inline.
+- `task_requirement` (required) — the task requirement text to validate (bug report, user story, task description). This must be the requirement content itself, not a reference to fetch elsewhere.
+- `output_location` (optional) — where to deliver the result: a local file path or directory path. If not provided, report results inline.
 
-## Step 1: Fetch the requirement
+## Step 1: Confirm the requirement is present
 
-If `task_requirement` is a URL (JIRA ticket, GitHub Issue, or similar), fetch its contents using available tools (e.g., WebFetch, MCP integrations). Extract the full description, acceptance criteria, comments, and any attached media references. If it is inline text, use it as-is.
+If `task_requirement` is missing, empty, or too sparse to classify (e.g., a single word or fragment with no discernible subject), this is a **fatal error** — do not guess at intent or invent a requirement to validate. Stop and report:
+
+```
+## Validation Result: FATAL ERROR
+
+> AI-generated content.
+
+The task requirement is missing or too unclear to evaluate. Provide the requirement text describing what needs to happen (a bug report, user story, or task description).
+```
+
+Otherwise, continue to Step 2.
 
 ## Step 2: Classify the requirement
 
@@ -47,18 +56,15 @@ Use the content and framing of the requirement to decide. When in doubt, prefer 
 
 ### For `bug`
 
-Validation **SUCCEEDS** when all of the following are present with sufficient detail:
+A bug report is only actionable once someone else can put themselves in the same situation and see the same problem. Validation **SUCCEEDS** when all three of the following categories are present with sufficient detail:
 
-1. **Steps to reproduce (STR)** — A flow that reliably causes the defect, including:
-   - Environment (OS, browser, version, deployment, tenant, etc.)
-   - Step-by-step actions to trigger the issue
-   - Any login credentials, test accounts, or access context needed
-   - Any under-test project file, data, or configuration needed to reproduce
-2. **Clear problem description** — Both sides of the observed vs. intended behavior:
-   - **Expected result**: what should happen
-   - **Actual result**: what actually happens
+1. **Pre-condition** — What state the system/tester must be in before starting: environment (OS, browser, version, deployment, tenant), login credentials or test account, and the under-test project, data, or configuration needed to reproduce.
+2. **Steps to reproduce (STR)** — The ordered, step-by-step actions that reliably trigger the defect, starting from the pre-condition above.
+3. **Assertion** — Both sides of the observed vs. intended behavior:
+   - **Expected result**: what should happen (the intended behavior)
+   - **Actual result**: what actually happens (the observed behavior)
 
-If either of these is missing or too vague to act on, validation **FAILS**.
+If any of these three categories is missing or too vague to act on, validation **FAILS**.
 
 ### For `story`
 
@@ -86,7 +92,7 @@ If either of these is missing or too vague to evaluate, validation **FAILS**.
 
 ### If validation FAILS
 
-Report clearly and concisely what is missing or insufficiently specified. Name the missing element(s) using the terminology above (e.g., "Steps to reproduce are missing", "Expected result is not stated", "Acceptance Criteria are absent"). Do not attempt to infer or fill in missing information — the goal is to surface the gap so the author can address it.
+Report clearly and concisely what is missing or insufficiently specified. Name the missing element(s) using the terminology above (e.g., "Pre-condition is missing — no environment or test account specified", "Steps to reproduce are absent", "Actual result is not stated", "Acceptance Criteria are absent"). Do not attempt to infer or fill in missing information — the goal is to surface the gap so the author can address it.
 
 Format:
 
@@ -102,26 +108,9 @@ Format:
 - [Element 2]: ...
 ```
 
-### If validation SUCCEEDS (fully or partially)
+### If validation SUCCEEDS
 
-Produce an enriched version of the requirement that makes it clearer and less ambiguous for whoever will plan and implement it. Preserve all original intent — your role is to clarify and extend, not to rewrite or contradict.
-
-The enriched output must include:
-
-1. **Revised / Enriched Requirement** — The original requirement restated with any ambiguities resolved, implicit assumptions made explicit, and relevant context surfaced. Keep it readable; do not pad unnecessarily.
-
-2. **Consideration, Decision and Rationale** — A section that captures:
-   - Key considerations or trade-offs relevant to this task (technical, UX, scope, risk, etc.)
-   - Any decisions implied or required by the requirement (e.g., which approach to take, what to prioritize)
-   - The rationale behind those decisions
-
-3. **Severity** (for `bug` type only) — Append a severity assessment using this scale:
-   - **Critical**: System unusable, data loss, security breach, or complete feature failure with no workaround
-   - **High**: Major functionality broken, significant user impact, workaround exists but is painful
-   - **Medium**: Partial functionality affected, moderate user impact, reasonable workaround available
-   - **Low**: Minor visual or UX issue, minimal user impact, easy workaround
-
-   If the original requirement already includes a severity value, retain it (note it as "original") and only suggest a revised value if you have a strong reason to differ.
+Report the result — there is no enrichment step. The requirement is already complete enough to hand off as-is.
 
 Format:
 
@@ -131,32 +120,9 @@ Format:
 > AI-generated content.
 
 **Type**: <bug | story | general_task>
-
----
-
-## Enriched Requirement
-
-<Revised, clear, and complete version of the requirement>
-
----
-
-## Consideration, Decision and Rationale
-
-<Bullet points or short paragraphs covering key considerations, implied decisions, and reasoning>
-
----
-
-## Severity  ← (bug type only)
-
-**Suggested**: <Critical | High | Medium | Low>
-**Reason**: <Brief justification>
-[**Original** (if present): <original value>]
 ```
 
 ## Step 5: Deliver the output
 
-- If `output_location` is provided:
-  - If it is a **local file or directory path**: write the output to that location using available file tools.
-  - If it is a **remote URL** (e.g., JIRA ticket): post the output there using available integrations (e.g., add as a comment or update the description field).
-  - In both cases, also provide a brief summary to the caller confirming what was done and where the result was sent.
+- If `output_location` is provided (a local file or directory path): write the output to that location using available file tools, and also give the caller a brief summary confirming what was done and where the result was saved.
 - If `output_location` is not provided: report the full output inline to the caller.

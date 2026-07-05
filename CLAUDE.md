@@ -1,10 +1,29 @@
 # CLAUDE.md
 
+A Claude Code plugin marketplace. Contains a marketplace index and plugins, each with skills (slash commands). No build system, no tests, no CI — all files are JSON or Markdown.
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## What this repo is
+## Constitution
 
-A Claude Code plugin marketplace. Contains a marketplace index and plugins, each with skills (slash commands). No build system, no tests, no CI — all files are JSON or Markdown.
+<!--
+
+Note for the AI: this is for human, don't touch, and keep this HTML comment block when updating this file
+
+-->
+
+### Change Integrity
+
+- Treat every durable change — to local files or remote state — as touching a web of dependent content, never as an isolated edit.
+- Before planning or making such a change, identify everything that depends on or relates to the changed content.
+- Propagate the change to all affected artifacts so they stay aligned; documentation that describes code changes when the code does.
+- Never leave a change half-applied: a change is complete only when nothing dependent on it is left stale or contradictory.
+
+### Grounded Advice
+
+- Ground every research or advisory result in identifiable sources.
+- Always cite those sources, giving real, working references (such as actual document URLs) the user can open and verify.
+- Never present a claim as sourced when it is inference; keep what was found and what was concluded distinguishable.
 
 ## Structure
 
