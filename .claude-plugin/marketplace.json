@@ -20,6 +20,20 @@
       "category": "development",
       "source": "./plugins/worktree-setup",
       "homepage": "https://github.com/duylam/claude-code-engineering-assembly/tree/main/plugins/worktree-setup"
+    },
+    {
+      "name": "context7",
+      "description": "Bundles the Context7 MCP server (https://mcp.context7.com/mcp) so Claude Code can pull up-to-date, version-specific library documentation and code examples on demand.",
+      "category": "development",
+      "source": "./plugins/context7",
+      "homepage": "https://github.com/duylam/claude-code-engineering-assembly/tree/main/plugins/context7"
+    },
+    {
+      "name": "atlassian",
+      "description": "Bundles the Atlassian Remote MCP Server (Rovo) so Claude Code can access Jira, Confluence, Jira Service Management, Bitbucket, and Compass via OAuth 2.1 SSO login.",
+      "category": "development",
+      "source": "./plugins/atlassian",
+      "homepage": "https://github.com/duylam/claude-code-engineering-assembly/tree/main/plugins/atlassian"
     }
   ]
 }
