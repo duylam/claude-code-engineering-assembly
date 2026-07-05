@@ -29,11 +29,18 @@
       "homepage": "https://github.com/duylam/claude-code-engineering-assembly/tree/main/plugins/context7"
     },
     {
-      "name": "atlassian",
+      "name": "atlassian-sso",
       "description": "Bundles the Atlassian Remote MCP Server (Rovo) so Claude Code can access Jira, Confluence, Jira Service Management, Bitbucket, and Compass via OAuth 2.1 SSO login.",
       "category": "development",
-      "source": "./plugins/atlassian",
-      "homepage": "https://github.com/duylam/claude-code-engineering-assembly/tree/main/plugins/atlassian"
+      "source": "./plugins/atlassian-sso",
+      "homepage": "https://github.com/duylam/claude-code-engineering-assembly/tree/main/plugins/atlassian-sso"
+    },
+    {
+      "name": "atlassian-api-token",
+      "description": "Bundles the Atlassian Remote MCP Server (Rovo) so Claude Code can access Jira, Confluence, Jira Service Management, Bitbucket, and Compass using a personal API token (Basic auth) instead of interactive SSO login.",
+      "category": "development",
+      "source": "./plugins/atlassian-api-token",
+      "homepage": "https://github.com/duylam/claude-code-engineering-assembly/tree/main/plugins/atlassian-api-token"
     }
   ]
 }

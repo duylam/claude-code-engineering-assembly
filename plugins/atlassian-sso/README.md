@@ -1,9 +1,13 @@
-# Atlassian Plugin
+# Atlassian SSO Plugin
 
 Bundles the [Atlassian Remote MCP Server](https://www.atlassian.com/platform/remote-mcp-server)
 (Rovo) into Claude Code so it can work with **Jira, Confluence, Jira Service Management,
 Bitbucket, and Compass** directly — reading issues, searching pages, creating tickets, and
 more — with every action respecting your existing Atlassian access controls.
+
+Authentication uses **OAuth 2.1 SSO** (browser login). If you'd rather authenticate with a
+personal API token or service-account API key instead of an interactive browser flow, use the
+companion **`atlassian-api-token`** plugin.
 
 ## Overview
 
@@ -22,7 +26,7 @@ The server is defined as a streamable HTTP MCP server:
 ```json
 {
   "mcpServers": {
-    "atlassian": {
+    "atlassian-sso": {
       "type": "http",
       "url": "https://mcp.atlassian.com/v1/mcp/authv2"
     }
@@ -52,7 +56,7 @@ need to enable the Remote MCP Server / Rovo for your site.
 
 ```
 /plugin marketplace add https://raw.githubusercontent.com/duylam/claude-code-engineering-assembly/main/.claude-plugin/marketplace.json
-/plugin install atlassian@engineering-assembly
+/plugin install atlassian-sso@engineering-assembly
 ```
 
 ## Usage

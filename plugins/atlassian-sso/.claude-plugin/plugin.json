@@ -1,5 +1,5 @@
 {
-  "name": "atlassian",
+  "name": "atlassian-sso",
   "description": "Bundles the Atlassian Remote MCP Server (Rovo) so Claude Code can access Jira, Confluence, Jira Service Management, Bitbucket, and Compass via OAuth 2.1 SSO login.",
   "version": "1.0.0",
   "author": {
