@@ -1,16 +1,10 @@
-# Development Task Implementation Plugin
+# Implementation Plugin
 
-A structured workflow for taking a software development task from raw requirement to a verified change on a running app — validate completeness, decompose into a plan, then exercise the result with QA test automation.
+A structured workflow for taking a software development task from raw requirement to a verified change on a running app — validate completeness, then exercise the result with QA test automation.
 
 ## Overview
 
-Development tasks fail most often not because the code is wrong, but because teams skip steps: they plan before the requirement is clear, or ship a change without anyone actually driving it through the app to confirm it works. This plugin covers two complementary needs:
-
-```
-validate → plan
-```
-
-`/validate` checks whether a requirement is ready to act on. `/plan` decomposes a requirement into an ordered, dependency-aware task list. Each can be invoked independently.
+Development tasks fail most often not because the code is wrong, but because teams skip steps: they act on a requirement before it's clear, or ship a change without anyone actually driving it through the app to confirm it works. `/validate` checks whether a requirement is ready to act on.
 
 Separately, the plugin bundles **QA test automation**: the `playwright-cli` skill drives a real browser, and the `automation-expert` agent executes manual test cases and reproduction steps step-by-step on web (via `playwright-cli`) or Android (via `adb`) — useful for verifying acceptance criteria, reproducing a bug, or running a regression check once a change is made.
 
@@ -33,20 +27,6 @@ Completeness criteria by type:
 - **bug** — three distinct categories: **pre-condition** (environment, login/credentials, under-test project or data), **steps to reproduce** (the ordered actions that trigger the defect), and **assertion** (expected vs. actual result)
 - **story** — change description + acceptance criteria + scope
 - **general_task** — mission/objective + acceptance criteria + scope
-
-### `/plan [task_requirement] [output_location?]`
-
-Reads a requirement and produces an ordered, dependency-aware task list ready for implementation.
-
-- **On success**: a markdown table of tasks (id `NN-slug`, description, `blocked_by`) plus a Consideration/Decision/Rationale section covering key planning choices.
-- **On failure**: a `Plan: BLOCKED` report with the fatal blockers listed — no partial plan is produced.
-
-| Argument | Required | Description |
-|---|---|---|
-| `task_requirement` | yes | Inline text or remote URL |
-| `output_location` | no | Remote URL only (JIRA, GitHub Issue, etc.). Defaults to inline if omitted. |
-
-Runs in a dedicated Plan subagent (`fork: true`, `agent: Plan`).
 
 ### `playwright-cli`
 
@@ -76,14 +56,13 @@ The Android path of `automation-expert` requires **adb** (Android platform-tools
 ## Installation
 
 ```
-/plugin install development-task-implementation@engineering-assembly
+/plugin install implementation@engineering-assembly
 ```
 
 ## Recommended workflow
 
 ```
 /validate "Users report 500 errors when uploading files over 10MB on Safari. Expected: upload succeeds. Actual: server returns 500."
-/plan "https://jira.example.com/browse/PROJ-123"
 ```
 
 Then, once a change is in place, hand acceptance criteria or a bug's steps to reproduce to the `automation-expert` agent to drive the app and confirm the result:

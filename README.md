@@ -6,9 +6,9 @@ A Claude Code marketplace of plugins for software engineering workflows.
 
 ## Plugins
 
-### [development-task-implementation](plugins/development-task-implementation)
+### [implementation](plugins/implementation)
 
-A structured validate → plan → implement workflow for software development tasks. Validates requirement completeness, decomposes into dependency-aware task lists, and coordinates implementation via subagents with frequent commits. Supports inline text and remote URLs (JIRA, GitHub, Linear).
+A structured validation workflow for software development tasks, plus QA test automation. Validates requirement completeness and runs manual test cases on web (playwright-cli) or Android (adb) via the automation-expert agent.
 
 ### [worktree-setup](plugins/worktree-setup)
 
@@ -25,7 +25,7 @@ Add this marketplace to Claude Code:
 Then install individual plugins:
 
 ```
-/plugin install development-task-implementation@engineering-assembly
+/plugin install implementation@engineering-assembly
 ```
 
 Or browse via `/plugin > Discover`.
