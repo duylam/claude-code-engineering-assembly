@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "implementation",
-      "description": "A structured validation workflow for software development tasks, plus QA test automation. Validates requirement completeness and runs manual test cases on web (playwright-cli) or Android (adb) via the automation-expert agent.",
+      "description": "A structured validation workflow for software development tasks, plus QA test automation and JIRA integration. Validates requirement completeness, runs manual test cases on web (playwright-cli) or Android (adb) via the automation-expert agent, and retrieves/posts results to JIRA tickets.",
       "category": "development",
       "source": "./plugins/implementation",
       "homepage": "https://github.com/duylam/claude-code-engineering-assembly/tree/main/plugins/implementation"

@@ -1,7 +1,7 @@
 {
   "name": "implementation",
-  "description": "A structured workflow for software development tasks: validate requirements for completeness and clarity, decompose them into an ordered dependency-aware implementation plan, and run QA test automation on web (via playwright-cli) or Android (via adb). Handles bugs, stories, and general tasks from inline text.",
-  "version": "1.1.0",
+  "description": "A structured workflow for software development tasks: validate requirements (bug, story, or general task) for completeness and clarity, run QA test automation on web (via playwright-cli) or Android (via adb), and retrieve or post results to JIRA tickets.",
+  "version": "1.2.0",
   "author": {
     "name": "Duy Lam",
     "email": "sej5h73eq@mozmail.com"

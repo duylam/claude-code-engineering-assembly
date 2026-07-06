@@ -8,6 +8,8 @@ Development tasks fail most often not because the code is wrong, but because tea
 
 Separately, the plugin bundles **QA test automation**: the `playwright-cli` skill drives a real browser, and the `automation-expert` agent executes manual test cases and reproduction steps step-by-step on web (via `playwright-cli`) or Android (via `adb`) — useful for verifying acceptance criteria, reproducing a bug, or running a regression check once a change is made.
 
+The plugin also bundles two **JIRA integration skills**: `atlassian-jira-ticket-retriever` pulls a ticket's title, description, comments, and attachments into a local directory for downstream processing, and `atlassian-jira-ticket-comment-creator` posts results (validation output, enrichment, QA findings) back as a ticket comment, including file attachments.
+
 ## Skills
 
 ### `/validate [task_requirement] [output_location?]`
@@ -32,6 +34,14 @@ Completeness criteria by type:
 
 Browser automation for testing web pages and working with Playwright tests — open a page, take an accessibility snapshot, click/fill/type by ref, manage tabs and storage state, mock network requests, and record traces or video. See `skills/playwright-cli/SKILL.md` and its `references/` for the full command surface (session management, spec-driven testing, test generation, tracing, video recording).
 
+### `atlassian-jira-ticket-retriever`
+
+Fetches one or more JIRA tickets by URL and saves structured content (title, description, comments, attachments) to a local temp directory, for use by validation, enrichment, or planning workflows. Invoke it whenever a JIRA ticket URL appears in the input and its content needs to be pulled locally.
+
+### `atlassian-jira-ticket-comment-creator`
+
+Posts a comment to a JIRA ticket, optionally uploading file attachments and replacing `attachment:<filename>` placeholders in the comment body with inline JIRA references (`!file.png!` for images, `[file|^file]` otherwise). Also resolves `@mentions` to JIRA account IDs so the mentioned user gets notified. Use to deliver feedback, enrichment results, or validation output as a ticket comment.
+
 ## Agents
 
 ### `automation-expert`
@@ -53,6 +63,11 @@ The `playwright-cli` skill and the web path of `automation-expert` require the `
 
 The Android path of `automation-expert` requires **adb** (Android platform-tools) and a running emulator or device; no additional setup is needed for the web path beyond `playwright-cli` itself.
 
+The `atlassian-jira-ticket-retriever` and `atlassian-jira-ticket-comment-creator` skills require:
+
+- A JIRA MCP integration installed and connected (e.g. the companion **`atlassian-sso`** or **`atlassian-api-token`** plugin) for ticket/comment/account-lookup calls.
+- `MCP_ATLASSIAN_ACCOUNT_USERNAME` and `MCP_ATLASSIAN_ACCOUNT_API_TOKEN` environment variables, used by the bundled `upload-file-to-attachment.sh` and `download-attachment-file.sh` scripts to authenticate directly against the JIRA Cloud REST API (`curl -u`) for attachment upload/download, which falls outside the MCP tool surface. Generate the API token at <https://id.atlassian.com/manage-profile/security/api-tokens>.
+
 ## Installation
 
 ```
@@ -69,4 +84,14 @@ Then, once a change is in place, hand acceptance criteria or a bug's steps to re
 
 ```
 Run these test steps against staging and report pass/fail: ...
+```
+
+To work directly from a JIRA ticket instead of pasted text, retrieve it first and post results back when done:
+
+```
+Fetch https://yourname.atlassian.net/browse/DT-123 and validate the requirement.
+```
+
+```
+Post the QA results as a comment on https://yourname.atlassian.net/browse/DT-123, attaching the failure screenshot.
 ```

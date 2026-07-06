@@ -8,7 +8,7 @@ A Claude Code marketplace of plugins for software engineering workflows.
 
 ### [implementation](plugins/implementation)
 
-A structured validation workflow for software development tasks, plus QA test automation. Validates requirement completeness and runs manual test cases on web (playwright-cli) or Android (adb) via the automation-expert agent.
+A structured validation workflow for software development tasks, plus QA test automation and JIRA integration. Validates requirement completeness, runs manual test cases on web (playwright-cli) or Android (adb) via the automation-expert agent, and retrieves/posts results to JIRA tickets.
 
 ### [worktree-setup](plugins/worktree-setup)
 
