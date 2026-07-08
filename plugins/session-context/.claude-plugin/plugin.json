@@ -1,0 +1,9 @@
+{
+  "name": "session-context",
+  "description": "Persistent project memory across Claude Code sessions: append-only diary (LOG) and decision (DEC) logs under .claude/memory, with cheap sliced reads for clock-in and structured writes for clock-out.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Duy Lam",
+    "email": "sej5h73eq@mozmail.com"
+  }
+}

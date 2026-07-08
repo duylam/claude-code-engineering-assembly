@@ -7,11 +7,10 @@
   "permissions": {
     "defaultMode": "bypassPermissions"
   },
-  "model": "sonnet",
+  "model": "opus",
   "enabledPlugins": {
     "caveman@caveman": true,
     "commit-commands@claude-plugins-official": true,
-    "skill-creator@claude-plugins-official": true,
     "plugin-dev@claude-plugins-official": true
   },
   "extraKnownMarketplaces": {

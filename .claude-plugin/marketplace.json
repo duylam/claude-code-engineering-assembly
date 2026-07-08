@@ -41,6 +41,13 @@
       "category": "development",
       "source": "./plugins/atlassian-api-token",
       "homepage": "https://github.com/duylam/claude-code-engineering-assembly/tree/main/plugins/atlassian-api-token"
+    },
+    {
+      "name": "session-context",
+      "description": "Persistent project memory across Claude Code sessions: append-only diary (LOG) and decision (DEC) logs under .claude/memory, with cheap sliced reads for clock-in and structured writes for clock-out.",
+      "category": "productivity",
+      "source": "./plugins/session-context",
+      "homepage": "https://github.com/duylam/claude-code-engineering-assembly/tree/main/plugins/session-context"
     }
   ]
 }
