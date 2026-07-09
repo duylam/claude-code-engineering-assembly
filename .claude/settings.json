@@ -23,5 +23,6 @@
   },
   "alwaysThinkingEnabled": true,
   "plansDirectory": ".claude/plans",
+  "respondToBashCommands": false,
   "effortLevel": "high"
 }
