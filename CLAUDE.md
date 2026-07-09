@@ -25,7 +25,9 @@ Note for the AI: this is for human, don't touch, and keep this HTML comment bloc
 - Always cite those sources, giving real, working references (such as actual document URLs) the user can open and verify.
 - Never present a claim as sourced when it is inference; keep what was found and what was concluded distinguishable.
 
-## Structure
+## Project Guideline
+
+### Structure
 
 ```
 .claude-plugin/
@@ -37,21 +39,21 @@ plugins/<plugin-name>/
   README.md
 ```
 
-## Adding a plugin
+### Adding a plugin
 
 1. Create `plugins/<plugin-name>/.claude-plugin/plugin.json` with `name`, `description`, `version`, `author`.
 2. Add skills under `plugins/<plugin-name>/skills/<skill-name>/SKILL.md`.
 3. Register the plugin in `.claude-plugin/marketplace.json` under `"plugins"`.
 
-## Adding a skill to an existing plugin
+### Adding a skill to an existing plugin
 
 Create `plugins/<plugin-name>/skills/<skill-name>/SKILL.md`. The frontmatter `description` field is critical — it controls when Claude auto-triggers the skill, so write it as a precise trigger sentence (what the user says or intends).
 
-## Marketplace registration
+### Marketplace registration
 
 `.claude-plugin/marketplace.json` must list every plugin. The `source` field is a relative path from the marketplace file to the plugin directory.
 
-## Development model
+### Development model
 
 No linting, no tests. Validate by installing the plugin locally:
 
