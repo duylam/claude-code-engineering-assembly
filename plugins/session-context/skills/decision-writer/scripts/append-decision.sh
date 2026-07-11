@@ -18,14 +18,17 @@ readonly DIARY="$MEMORY_DIR/diary.md"
 readonly DECISIONS="$MEMORY_DIR/decisions.md"
 
 TITLE=""
+WORK="-"
+SESSION="-"
 TAGS=""
 REFS=""
 SUPERSEDES="-"
 STATUS="accepted"
 
 usage() {
-    echo "Usage: $SCRIPT_NAME --title \"...\" [--tags \"a,b\"] [--refs \"LOG-...\"] \\"
-    echo "         [--supersedes DEC-id] [--status proposed|accepted|superseded|rejected] < body"
+    echo "Usage: $SCRIPT_NAME --title \"...\" [--work KEY] [--session ID] [--tags \"a,b\"] \\"
+    echo "         [--refs \"LOG-...\"] [--supersedes DEC-id] \\"
+    echo "         [--status proposed|accepted|superseded|rejected] < body"
     echo "  Reads the ### Consideration / ### Decision / ### Rationale [/ ### Alternatives] block from stdin."
     exit "${1:-0}"
 }
@@ -34,6 +37,8 @@ usage() {
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --title) TITLE="${2:-}"; shift 2 ;;
+        --work) WORK="${2:-}"; shift 2 ;;
+        --session) SESSION="${2:-}"; shift 2 ;;
         --tags) TAGS="${2:-}"; shift 2 ;;
         --refs) REFS="${2:-}"; shift 2 ;;
         --supersedes) SUPERSEDES="${2:-}"; shift 2 ;;
@@ -87,6 +92,8 @@ TS="$(date -Iseconds)"
 {
     printf '\n## %s · %s · status=%s\n' "$ID" "$TS" "$STATUS"
     printf 'Title: %s\n' "$TITLE"
+    printf 'Work: %s\n' "${WORK:--}"
+    printf 'Session: %s\n' "${SESSION:--}"
     printf 'Tags: %s\n' "$TAGS"
     printf 'Refs: %s\n' "${REFS:--}"
     printf 'Supersedes: %s\n' "${SUPERSEDES:--}"
