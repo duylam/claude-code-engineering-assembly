@@ -38,7 +38,7 @@ SESSION_ID="$(printf '%s' "$PAYLOAD" \
     | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
     | head -1)"
 
-MARKER_DIR="${TMPDIR:-/tmp}/claude-session-context"
+MARKER_DIR="${TMPDIR:-/tmp}/claude-work-journal"
 MARKER="$MARKER_DIR/${SESSION_ID:-unknown}.injected"
 
 # The context was wiped (/clear) or summarized (compact): forget that this
@@ -49,7 +49,7 @@ if [[ "$RESET" == "1" ]]; then
 fi
 
 if [[ -n "$SESSION_ID" && -f "$MARKER" ]]; then
-    echo "Session protocol active: clock-out with session-context:diary-writer (--work, --closes) before any git commit."
+    echo "Session protocol active: clock-out with work-journal:diary-writer (--work, --closes) before any git commit."
     exit 0
 fi
 

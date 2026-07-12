@@ -43,11 +43,11 @@
       "homepage": "https://github.com/duylam/claude-code-engineering-assembly/tree/main/plugins/atlassian-api-token"
     },
     {
-      "name": "session-context",
+      "name": "work-journal",
       "description": "Cross-session memory for long-running work: append-only diary (LOG) and decision (DEC) logs under .claude/memory, grouped by work item (JIRA-123, RFC-7, …), with derived open-item tracking so any later session can answer what is still pending, what changed on a ticket, and what was done since a date. Ships its own clock-in/clock-out protocol via a UserPromptSubmit hook.",
       "category": "productivity",
-      "source": "./plugins/session-context",
-      "homepage": "https://github.com/duylam/claude-code-engineering-assembly/tree/main/plugins/session-context"
+      "source": "./plugins/work-journal",
+      "homepage": "https://github.com/duylam/claude-code-engineering-assembly/tree/main/plugins/work-journal"
     }
   ]
 }

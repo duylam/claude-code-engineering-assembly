@@ -1,4 +1,4 @@
-# Session Context Plugin
+# Work Journal Plugin
 
 Memory for work that outlives a single Claude Code session.
 
@@ -99,7 +99,7 @@ log, not from a guess.
 
 ```
 /plugin marketplace add <path-or-url-to-marketplace.json>
-/plugin install session-context@engineering-assembly
+/plugin install work-journal@engineering-assembly
 ```
 
 ## Notes
