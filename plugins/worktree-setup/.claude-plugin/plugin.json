@@ -1,9 +1,0 @@
-{
-  "name": "worktree-setup",
-  "description": "Packages a WorktreeCreate hook so `claude --worktree <name>` creates a branch, places the worktree under .worktrees/<name>, and initializes submodules — no per-repo setup needed.",
-  "version": "1.0.0",
-  "author": {
-    "name": "Duy Lam",
-    "email": "sej5h73eq@mozmail.com"
-  }
-}
