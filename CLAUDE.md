@@ -4,27 +4,6 @@ A Claude Code plugin marketplace. Contains a marketplace index and plugins, each
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Constitution
-
-<!--
-
-Note for the AI: this is for human, don't touch, and keep this HTML comment block when updating this file
-
--->
-
-### Change Integrity
-
-- Treat every durable change — to local files or remote state — as touching a web of dependent content, never as an isolated edit.
-- Before planning or making such a change, identify everything that depends on or relates to the changed content.
-- Propagate the change to all affected artifacts so they stay aligned; documentation that describes code changes when the code does.
-- Never leave a change half-applied: a change is complete only when nothing dependent on it is left stale or contradictory.
-
-### Grounded Advice
-
-- Ground every research or advisory result in identifiable sources.
-- Always cite those sources, giving real, working references (such as actual document URLs) the user can open and verify.
-- Never present a claim as sourced when it is inference; keep what was found and what was concluded distinguishable.
-
 ## Project Guideline
 
 ### Structure
@@ -45,10 +24,6 @@ plugins/<plugin-name>/
 2. Add skills under `plugins/<plugin-name>/skills/<skill-name>/SKILL.md`.
 3. Register the plugin in `.claude-plugin/marketplace.json` under `"plugins"`.
 
-### Adding a skill to an existing plugin
-
-Create `plugins/<plugin-name>/skills/<skill-name>/SKILL.md`. The frontmatter `description` field is critical — it controls when Claude auto-triggers the skill, so write it as a precise trigger sentence (what the user says or intends).
-
 ### Marketplace registration
 
 `.claude-plugin/marketplace.json` must list every plugin. The `source` field is a relative path from the marketplace file to the plugin directory.
@@ -63,3 +38,12 @@ No linting, no tests. Validate by installing the plugin locally:
 ```
 
 Then invoke the skill and check its output matches the spec in `SKILL.md`.
+
+## Workflow
+
+- **Version bump on plugin change:** any edit to a published plugin under `plugins/<name>/` must bump
+  the `version` in that plugin's `plugins/<name>/.claude-plugin/plugin.json`. One logical change = one
+  bump (semver: patch for fixes, minor for new capability, major for breaking layout/manifest change).
+- **Commit each unit of work:** when a unit of work is complete, make a git commit. Use the
+  `commit-commands:commit` skill (or `commit-commands:commit-push-pr` when a PR is wanted) rather than
+  raw `git commit`.
