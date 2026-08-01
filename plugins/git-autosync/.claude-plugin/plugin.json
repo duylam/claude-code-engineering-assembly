@@ -1,0 +1,9 @@
+{
+  "name": "git-autosync",
+  "description": "Puts a project into a known-good git state before the first prompt of every session: fast-forwards the default branch (main, falling back to master) from the first remote, creates Claude Code worktrees off the freshly synced branch, initializes submodules recursively, and attaches each top-level submodule to the superproject's branch instead of a detached HEAD. Does nothing outside a git repo or in a repo with no remote, and never fails a session.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Duy Lam",
+    "email": "sej5h73eq@mozmail.com"
+  }
+}

@@ -1,0 +1,101 @@
+#!/bin/bash
+
+# ============================================================================
+# git-common.sh - helpers shared by the git-autosync worker scripts.
+#
+# Source this file; do not execute it. Callers run under `set -Eeuo pipefail`,
+# so nothing here calls `exit`: helpers return a status and the caller decides
+# what a failure means. That keeps the "always end success" contract in one
+# place - the caller's own `finish`.
+# ============================================================================
+
+# Collected output. Notes are things that were changed, warnings are things a
+# human has to deal with. Both are rendered together, warnings last.
+NOTES=()
+WARNINGS=()
+
+add_note() {
+    NOTES+=("$1")
+}
+
+add_warning() {
+    WARNINGS+=("$1")
+}
+
+# Print everything collected, one line each. Prints nothing at all when there
+# is nothing to say, so a repo that is already correct costs the user no
+# output and no context.
+render_report() {
+    local line
+
+    for line in ${NOTES[@]+"${NOTES[@]}"}; do
+        echo "$line"
+    done
+    for line in ${WARNINGS[@]+"${WARNINGS[@]}"}; do
+        echo "Warning: $line"
+    done
+}
+
+# Run a command, capturing its combined output in $CMD_OUTPUT and returning
+# its exit status. The ERR trap is cleared inside the capture subshell: `set
+# -E` propagates it there, where it would otherwise replace the command's own
+# error text with the trap's message.
+CMD_OUTPUT=""
+run_capture() {
+    local status=0
+
+    CMD_OUTPUT="$(trap - ERR; "$@" 2>&1)" || status=$?
+    return "$status"
+}
+
+# First line of the last captured output - git puts the actionable part there.
+capture_reason() {
+    echo "${CMD_OUTPUT%%$'\n'*}"
+}
+
+# Absolute path of the repository that owns the object store: the main
+# checkout, even when called from inside a linked worktree. Returns non-zero
+# when $1 is not inside a git repository at all - the signal to do nothing.
+resolve_main_repo() {
+    local start="$1" common_dir
+
+    common_dir="$(git -C "$start" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+    if [[ -z "$common_dir" ]]; then
+        # git < 2.31 has no --path-format, and returns a path relative to the
+        # directory git was run in; resolve it by hand.
+        common_dir="$(git -C "$start" rev-parse --git-common-dir 2>/dev/null || true)"
+        [[ -n "$common_dir" ]] || return 1
+        common_dir="$(cd "$start" 2>/dev/null && cd "$common_dir" 2>/dev/null && pwd)" || return 1
+    fi
+
+    dirname "$common_dir"
+}
+
+# The remote to sync from: the first one git lists, which is `origin` in any
+# ordinary clone. Returns non-zero when the repo has no remote - the other
+# signal to do nothing.
+first_remote() {
+    local remote
+
+    remote="$(git -C "$1" remote 2>/dev/null | head -n 1)"
+    [[ -n "$remote" ]] || return 1
+    echo "$remote"
+}
+
+# Absolute path of the worktree that currently has branch $2 checked out, or
+# nothing when no worktree does.
+worktree_holding_branch() {
+    local repo="$1" branch="$2" line path=""
+
+    while IFS= read -r line; do
+        case "$line" in
+            "worktree "*)
+                path="${line#worktree }"
+                ;;
+            "branch refs/heads/$branch")
+                echo "$path"
+                return 0
+                ;;
+        esac
+    done < <(git -C "$repo" worktree list --porcelain 2>/dev/null)
+}
