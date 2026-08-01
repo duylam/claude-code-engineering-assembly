@@ -44,6 +44,11 @@ No settings, no `.local.md`, nothing to configure.
 | `WorktreeCreate` | `on-worktree-create.sh` | 300s | Syncs the default branch, **then creates the worktree** |
 | `SessionStart` (`startup`, `resume`) | `session-start.sh` | 600s | Syncs the default branch, then the submodules |
 
+Timeouts follow the slowest git operation the command can reach: **5 minutes** for a command that
+runs `git fetch`, **10 minutes** for one that also runs `git submodule` — a first submodule clone
+over a slow link is the worst case either hook has. A killed hook is not retried, so these are
+deliberately generous; a hook that finishes early costs nothing.
+
 ### Rule zero: stay out of the way
 
 Every hook does **nothing at all**, silently, when the project is:
@@ -138,6 +143,11 @@ plugin without opening a new one:
 | `/git-autosync:submodules-sync` | Populate submodules and attach them to the current branch |
 
 Both accept an optional path; both default to `$CLAUDE_PROJECT_DIR`.
+
+Both are marked `disable-model-invocation: true`: **you** invoke them, the agent cannot. These
+commands move git refs and working trees, and the hooks already run them at the only two moments
+where doing so unprompted is appropriate. An agent reaching for them mid-task — to "fix" a warning
+it was just shown, say — is exactly the behaviour to rule out.
 
 ## Running the scripts directly
 

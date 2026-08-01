@@ -1,8 +1,9 @@
 ---
 name: submodules-sync
-description: This skill should be used when the user asks to "init the submodules", "update submodules", "why is this submodule empty", "the submodule is on a detached HEAD", "attach submodules to my branch", or when a build fails because a submodule directory is empty or checked out at a stale commit. Runs the same submodule pass the git-autosync SessionStart hook runs, on demand, mid-session.
+description: Populate every submodule recursively and attach each top-level submodule to a branch named after the superproject's branch. Manual run of the submodule pass the SessionStart hook already performs.
 argument-hint: "[path-to-repo-or-worktree]"
 allowed-tools: Bash
+disable-model-invocation: true
 ---
 
 # Submodules Sync

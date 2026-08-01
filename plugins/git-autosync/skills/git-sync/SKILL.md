@@ -1,8 +1,9 @@
 ---
 name: git-sync
-description: This skill should be used when the user asks to "sync with the remote", "update main", "fast-forward main", "pull the latest main", "is my main up to date", or wants the repository's default branch brought level with its remote without switching branches. Runs the same sync the git-autosync SessionStart and WorktreeCreate hooks run, on demand, mid-session.
+description: Fast-forward the repository's default branch (main, falling back to master) from its first remote, without switching branches. Manual run of the sync the SessionStart and WorktreeCreate hooks already perform.
 argument-hint: "[path-to-repo]"
 allowed-tools: Bash
+disable-model-invocation: true
 ---
 
 # Git Sync
