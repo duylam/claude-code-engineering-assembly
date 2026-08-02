@@ -15,6 +15,26 @@
 # would silently cut new branches from the wrong place.
 readonly BRANCH_CANDIDATES=(main master)
 
+# Every directory a Claude Code worktree can land in, relative to the repo root.
+# BOTH are needed, because the plugin is not always the thing that made the
+# worktree:
+#
+#   .worktrees/         where on-worktree-create.sh puts one when the
+#                       WorktreeCreate hook runs and the plugin is in charge
+#   .claude/worktrees/  Claude Code's own default, used whenever it is not -
+#                       most importantly by `claude remote-control --spawn
+#                       worktree`, which builds its worktree itself and never
+#                       fires WorktreeCreate at all
+#
+# A repo driven by remote sessions therefore accumulates worktrees in a
+# directory this plugin never chose, and excluding only its own would leave the
+# main checkout permanently dirty. See ensure_worktrees_excluded.
+readonly WORKTREE_DIRS=(".worktrees" ".claude/worktrees")
+
+# The session-branch namespace. A branch outside it belongs to a human and is
+# never moved automatically.
+readonly SESSION_BRANCH_PREFIX="worktree-"
+
 # Collected output. Notes are things that were changed, warnings are things a
 # human has to deal with. Both are rendered together, warnings last.
 NOTES=()
@@ -57,6 +77,55 @@ run_capture() {
 # First line of the last captured output - git puts the actionable part there.
 capture_reason() {
     echo "${CMD_OUTPUT%%$'\n'*}"
+}
+
+# Keep every worktree directory out of `git status` in repo $1.
+#
+# Load-bearing, not cosmetic. An unignored worktree directory makes the main
+# checkout permanently dirty from the first worktree onward, and a dirty main
+# checkout is what the sync's own guards refuse to act on - so the plugin would
+# quietly disable itself for the life of the clone.
+#
+# Each directory is tested on its own: one of them already being ignored says
+# nothing about the other, and a repo whose .gitignore lists `.worktrees/`
+# (the plugin's) still goes dirty the moment Claude Code uses `.claude/
+# worktrees/` (its own).
+#
+# The entries are written unconditionally rather than only for directories that
+# exist, because the caller is often about to create one. info/exclude is local
+# to the clone, so this commits nothing on the user's behalf and appears in no
+# diff.
+ensure_worktrees_excluded() {
+    local repo="$1" common exclude dir
+
+    common="$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+    [[ -n "$common" && -d "$common" ]] || return 0
+
+    exclude="$common/info/exclude"
+
+    for dir in "${WORKTREE_DIRS[@]}"; do
+        # The trailing slash is required, not cosmetic. `.worktrees/` in a
+        # .gitignore is a directory-only pattern, and `check-ignore` asked
+        # about the slash-less path cannot tell the path is a directory - so it
+        # reports "not ignored" for a directory that plainly is, and the line
+        # gets appended again on every single run.
+        if git -C "$repo" check-ignore -q "$dir/" 2>/dev/null; then
+            continue
+        fi
+
+        # Second guard, for the case check-ignore cannot answer: the entry may
+        # already be in this very file from an earlier run. Without this the
+        # file grows by one duplicate line per session, forever.
+        if [[ -f "$exclude" ]] && grep -qxF "/$dir/" "$exclude" 2>/dev/null; then
+            continue
+        fi
+
+        mkdir -p "$common/info" 2>/dev/null || return 0
+        printf '/%s/\n' "$dir" >>"$exclude" 2>/dev/null || return 0
+        add_note "excluded /$dir/ in $exclude, so worktrees cannot make $repo dirty"
+    done
+
+    return 0
 }
 
 # Absolute path of the repository that owns the object store: the main

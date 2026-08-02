@@ -31,10 +31,12 @@ Relay what it printed. On empty output, say the default branch is already level 
 
 Explain these when a warning names one — each is a deliberate refusal, not a bug:
 
-- **Main repo has uncommitted changes** → nothing is touched. Ask the user to commit or stash.
 - **Local branch diverged from the remote** → the branch has commits of its own, so a
   fast-forward is impossible. Merging or rebasing is the user's call; do not do it unprompted.
 - **The branch is checked out in a dirty worktree** → same reasoning, scoped to that worktree.
+- **The session's `worktree-*` branch carries commits of its own** → it is behind the default
+  branch but holds work, so it is reported and never moved. Rebasing or merging it is the user's
+  call. Same for a session worktree with uncommitted changes.
 - **No `main` and no `master` on the remote** → the repo uses another default branch name. The
   plugin only syncs those two; a differently named branch has to be updated by hand.
 - **No remote, or not a git repository** → silent no-op by design.

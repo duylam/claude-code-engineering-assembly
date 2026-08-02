@@ -37,14 +37,14 @@
     },
     {
       "name": "work-journal",
-      "description": "Cross-session memory for long-running work: append-only diary (LOG) and decision (DEC) logs under .claude/memory, grouped by work item (JIRA-123, RFC-7, …), with derived open-item tracking so any later session can answer what is still pending, what changed on a ticket, and what was done since a date. Ships its own clock-in/clock-out protocol via a UserPromptSubmit hook.",
+      "description": "Cross-session memory for long-running work: append-only diary (LOG) and decision (DEC) logs under .claude/memory, grouped by work item (JIRA-123, RFC-7, \u2026), with derived open-item tracking so any later session can answer what is still pending, what changed on a ticket, and what was done since a date. Ships its own clock-in/clock-out protocol via a UserPromptSubmit hook.",
       "category": "productivity",
       "source": "./plugins/work-journal",
       "homepage": "https://github.com/duylam/claude-code-engineering-assembly/tree/main/plugins/work-journal"
     },
     {
       "name": "git-autosync",
-      "description": "Puts a project into a known-good git state before the first prompt of every session: fast-forwards the default branch (main, falling back to master) from the first remote, creates Claude Code worktrees off the freshly synced branch, initializes submodules recursively, and attaches each top-level submodule to the superproject's branch instead of a detached HEAD. Built for projects driven through Claude Code Remote Sessions. Does nothing outside a git repo or in a repo with no remote, and never fails a session.",
+      "description": "Puts a project into a known-good git state before the first prompt of every session: fast-forwards the default branch (main, falling back to master) from the first remote, aligns a session's own worktree branch when it was cut from a stale base, creates Claude Code worktrees off the freshly synced branch, initializes submodules recursively, and attaches each top-level submodule to the superproject's branch instead of a detached HEAD. Built for projects driven through Claude Code Remote Sessions. Does nothing outside a git repo or in a repo with no remote, and never fails a session.",
       "category": "development",
       "source": "./plugins/git-autosync",
       "homepage": "https://github.com/duylam/claude-code-engineering-assembly/tree/main/plugins/git-autosync"

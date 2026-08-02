@@ -46,7 +46,7 @@ No settings, no `.local.md`, nothing to configure.
 | Event | Script | Timeout | What it does |
 |---|---|---|---|
 | `WorktreeCreate` | `on-worktree-create.sh` | 300s | Syncs the default branch, **then creates the worktree** |
-| `SessionStart` (`startup`, `resume`) | `session-start.sh` | 600s | Syncs the default branch, then the submodules |
+| `SessionStart` (`startup`, `resume`) | `session-start.sh` | 600s | Syncs the default branch **and the session's own branch**, then the submodules |
 | `WorktreeRemove` | `on-worktree-remove.sh` | 120s | Removes the worktree and its branch when the session quits |
 
 Timeouts follow the slowest git operation the command can reach: **5 minutes** for a command that
@@ -77,19 +77,53 @@ repository even when invoked from a worktree, since that is where the branch ref
 - **Remote**: the first one `git remote` lists (`origin` in any ordinary clone).
 - **Branch**: `main`, falling back to `master`. If the remote has neither, it warns that it cannot
   match a known default branch name and succeeds anyway.
-- **Dirty main repo**: warns and stops. Uncommitted work is a human's business.
 - **Diverged branch**: warns and stops. It fast-forwards or it does nothing — never a merge commit.
 - **Branch checked out somewhere clean**: `git merge --ff-only` in that worktree.
+- **Branch checked out somewhere dirty**: warns and stops. Uncommitted work is a human's business.
 - **Branch checked out nowhere**: `git fetch <remote> main:main` updates the ref directly, touching
   no working tree.
+
+**The fetch is never gated on a clean working tree.** `git fetch` writes to the object store and the
+remote-tracking refs only — it cannot touch a working tree and cannot collide with uncommitted work,
+so refusing to run it in a dirty repository buys nothing and costs everything: `origin/main` goes
+stale, and every branch later cut from it starts behind. The dirty check lives on the steps that
+actually move a tree, and nowhere else.
 
 It never runs `git checkout`. An unattended hook must not move a repository off the branch a human
 left it on.
 
-It also never touches a branch other than the default one. A feature branch that has fallen behind
+It also never touches a branch other than the default one and the session's own — see
+[session-branch alignment](#session-branch-alignment) below. A feature branch that has fallen behind
 `origin/main` stays behind: reconciling it is a merge or a rebase, with conflicts to resolve, and
-that is a decision for you rather than for a hook. What the plugin guarantees instead is that a
-branch it creates *starts* level with the remote — see the worktree section below.
+that is a decision for you rather than for a hook.
+
+#### Session-branch alignment
+
+`WorktreeCreate` is the plugin's preferred moment to get a session branch right, but **it does not
+always fire**. `claude remote-control --spawn worktree` — the launcher behind remote and mobile
+sessions — builds its worktree itself, under Claude Code's own `.claude/worktrees/<name>`, and cuts
+`worktree-<name>` straight from `<remote>/<default>`: a remote-tracking ref that is only as fresh as
+the last `git fetch`. No hook of this plugin is consulted. A session can therefore open on a branch
+that is already days behind, which is the one thing the plugin exists to prevent.
+
+`SessionStart` runs *inside* the finished worktree and is the last moment to repair that. So the
+sync also fast-forwards the session's own branch — but only in the narrow case where doing so cannot
+lose anything. All four must hold:
+
+| | |
+|---|---|
+| a **linked worktree** | never the main checkout, whatever branch it is on |
+| on a **`worktree-*` branch** | the session namespace; a branch you named yourself is never moved |
+| carrying **no commits of its own** | zero commits beyond `<remote>/<default>` |
+| with a **clean tree** | no uncommitted or untracked changes |
+
+Under those four the branch is a pristine session base that merely started too far back, and
+`git merge --ff-only` moves a ref over an identical tree. Anything else is **reported, not touched**:
+
+```
+Warning: worktree-foo carries 2 commit(s) of its own and is 5 behind origin/main;
+         rebase or merge it by hand in /repo/.claude/worktrees/foo
+```
 
 ### Worktree creation — `on-worktree-create.sh`
 
@@ -97,6 +131,11 @@ Claude Code cuts the worktree's branch **before** any other hook runs: `Worktree
 main repo while the worktree does not exist yet, and `SessionStart` already runs inside the finished
 worktree. `WorktreeCreate` is therefore the only moment at which the default branch can still be
 fast-forwarded *in time for the new branch to be cut from it*.
+
+> `WorktreeCreate` fires for `claude --worktree` and for subagents with `isolation: worktree`. It
+> does **not** fire for `claude remote-control --spawn worktree`, which creates its worktree
+> outside the hook entirely — see [session-branch alignment](#session-branch-alignment) for how the
+> sync repairs that case after the fact.
 
 > **This hook replaces Claude Code's built-in `git worktree add`.** `WorktreeCreate` is not an
 > observer — whatever the hook prints on stdout *is* the worktree. The hook therefore creates the
@@ -125,10 +164,14 @@ fast-forwarded *in time for the new branch to be cut from it*.
 > If you already rely on Claude Code's default worktree location (`.claude/worktrees/<name>`),
 > note the change of path.
 
-`.worktrees/` is added to `.git/info/exclude` on first use. Without that, the first worktree would
-make the main repo permanently dirty — and every later sync would then skip itself on the dirty
-check. `info/exclude` is local to the clone, so nothing is committed on your behalf and nothing
-appears in a diff.
+**Both** worktree roots — `.worktrees/` (this plugin's) and `.claude/worktrees/` (Claude Code's) —
+are added to `.git/info/exclude`, on every sync, not only when this hook runs. Excluding just the
+plugin's own is not enough: a repository driven by remote sessions fills the *other* directory, and
+one unignored worktree directory makes the main checkout permanently dirty. `info/exclude` is local
+to the clone, so nothing is committed on your behalf and nothing appears in a diff.
+
+Each entry is written at most once, and only when git does not already ignore it — a `.gitignore`
+that lists `.worktrees/` is honoured and nothing is added for it.
 
 ### Worktree teardown — `worktree-cleanup.sh`
 
@@ -265,10 +308,23 @@ git-autosync/
 │   ├── ensure-submodules.sh    # worker: populate + attach submodules
 │   ├── worktree-cleanup.sh     # worker: remove a worktree and its branch
 │   └── lib/git-common.sh       # shared helpers (repo/remote resolution, reporting)
-└── skills/
-    ├── git-sync/SKILL.md
-    └── submodules-sync/SKILL.md
+├── skills/
+│   ├── git-sync/SKILL.md
+│   └── submodules-sync/SKILL.md
+└── tests/
+    ├── run.sh                  # every test; no arguments, no network
+    ├── lib.sh                  # throwaway-repo scaffolding + assertions
+    ├── test-stale-session-branch.sh
+    └── test-worktree-lifecycle.sh
 ```
+
+```bash
+bash plugins/git-autosync/tests/run.sh
+```
+
+Each test builds its own bare "remote" and clones under `$TMPDIR`, runs the real hook scripts
+against them, and deletes everything afterwards. Nothing touches your own repositories and nothing
+reaches the network.
 
 The three entry points hold the hook plumbing (payload parsing, JSON envelopes, the worktree stdout
 contract, the `reason` filter); the three workers hold the git logic and know nothing about hooks.
@@ -303,11 +359,12 @@ has no business touching — no warning, no "skipping" line, no context spent.
 **A git repo, no submodules.** Before your first prompt, the local `main` (or `master`) is
 fast-forwarded from `origin`. You are never switched between branches: if `main` is checked out and
 clean it is fast-forwarded in place, and if it is checked out nowhere its ref is updated directly,
-touching no files. Everything else is refused out loud — a dirty checkout, a diverged `main`, an
-unreachable remote each produce one `Warning:` line naming the command to run by hand.
+touching no files. Everything else is refused out loud — a checkout dirty *on the default branch*, a
+diverged `main`, an unreachable remote each produce one `Warning:` line naming the command to run by
+hand. Uncommitted work elsewhere in the repo does not stop the fetch: it cannot be harmed by one.
 
 Note what is *not* included: if you are on a feature branch, that branch is not rebased, merged or
-moved. Only the default branch is ever touched.
+moved. Outside a session worktree, only the default branch is ever touched.
 
 **A git repo with submodules.** The same sync, and then every submodule is populated recursively —
 so no empty directories to discover mid-task.
