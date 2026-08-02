@@ -9,10 +9,16 @@
 #   2. it sits on a local branch whose name matches the superproject's branch,
 #      instead of the detached HEAD `git submodule update` leaves behind
 #
-# A branch that has to be created is always based on the commit the
-# superproject records for that submodule (its gitlink), not on wherever the
-# submodule's own HEAD happens to sit - the gitlink is the commit this
-# superproject checkout actually means.
+# A branch that has to be created always starts at the submodule's own HEAD as
+# it stands once populated - the commit genuinely checked out there.
+#
+# For a submodule this run just populated that IS the commit the superproject
+# records, because `git submodule update` checks the gitlink out. The two only
+# differ for a submodule that was already populated somewhere else - ahead of
+# the gitlink, or on a branch of its own - and there, branching from HEAD is
+# what keeps this script from moving the tree out from under whoever put it
+# there. Branching from the gitlink instead would silently strand that work on
+# a commit nobody is standing on.
 #
 # Only TOP-LEVEL submodules get a branch. Nested submodules are populated but
 # left on their gitlink: they are vendored third-party trees, and creating a
@@ -143,15 +149,10 @@ ensure_populated() {
     return 1
 }
 
-# The commit the superproject's HEAD records for a submodule (its gitlink).
-gitlink_commit() {
-    git -C "$REPO_ROOT" rev-parse -q --verify "HEAD:$1" 2>/dev/null || true
-}
-
-# Attach a populated submodule to $BRANCH, creating that branch at the gitlink
-# commit when it does not exist yet.
+# Attach a populated submodule to $BRANCH, creating that branch where the
+# submodule already stands when it does not exist yet.
 ensure_branch() {
-    local path="$1" sub="$REPO_ROOT/$path" current base
+    local path="$1" sub="$REPO_ROOT/$path" current head
     local -a cmd
     local what
 
@@ -166,16 +167,12 @@ ensure_branch() {
         cmd=(checkout "$BRANCH")
         what="switched $path to existing branch $BRANCH"
     else
-        base="$(gitlink_commit "$path")"
-        if [[ -n "$base" ]] && git -C "$sub" cat-file -e "${base}^{commit}" 2>/dev/null; then
-            cmd=(checkout -b "$BRANCH" "$base")
-            what="created branch $BRANCH in $path at ${base:0:7}"
-        else
-            # No usable gitlink (detached superproject tree, unfetched commit):
-            # fall back to the submodule's own HEAD.
-            cmd=(checkout -b "$BRANCH")
-            what="created branch $BRANCH in $path"
-        fi
+        # `checkout -b` with no start point branches from HEAD - the commit
+        # this submodule is actually on. Naming a start point instead is what
+        # would move the tree; not naming one is the whole guarantee here.
+        head="$(git -C "$sub" rev-parse --short HEAD 2>/dev/null || true)"
+        cmd=(checkout -b "$BRANCH")
+        what="created branch $BRANCH in $path at ${head:-HEAD}"
     fi
 
     if run_capture git -C "$sub" "${cmd[@]}"; then

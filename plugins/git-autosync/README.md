@@ -184,10 +184,16 @@ Runs against the tree the session actually opened in: the worktree in a worktree
 repository itself otherwise.
 
 1. **Populate** every submodule, recursively.
-2. **Attach** each *top-level* submodule to a local branch named after the superproject's branch,
+2. **Attach** each *top-level* submodule to a local branch **named after the superproject's branch**,
    replacing the detached HEAD that `git submodule update` leaves behind. A branch that has to be
-   created is based on the **gitlink** — the commit the superproject records for that submodule —
-   not on wherever the submodule's own HEAD happens to sit.
+   created starts **where the submodule already stands** — its own HEAD once populated. An existing
+   branch of that name is simply checked out.
+
+For a submodule this run just populated, that start point is the commit the superproject records for
+it: `git submodule update` checks the gitlink out, so HEAD *is* the gitlink. The two only come apart
+for a submodule that was already populated somewhere else — ahead of the gitlink, or on a branch of
+its own — and there, branching from HEAD is what stops this from moving the tree out from under
+whoever put it there.
 
 Nested submodules are populated but deliberately left on their gitlink: they are vendored
 third-party trees, and a branch named after your feature does not belong inside one.
@@ -304,11 +310,21 @@ Note what is *not* included: if you are on a feature branch, that branch is not 
 moved. Only the default branch is ever touched.
 
 **A git repo with submodules.** The same sync, and then every submodule is populated recursively —
-so no empty directories to discover mid-task. Each *top-level* submodule is then put on a real
-branch named after whatever branch you are on, replacing the detached HEAD that `git submodule
-update` leaves behind, so a commit you make inside one has somewhere to land. Nested submodules are
-populated but deliberately left detached. Nothing already populated is ever rewound, and a submodule
-branch that already exists is checked out rather than moved.
+so no empty directories to discover mid-task.
+
+Each *top-level* submodule is then put on a real branch, replacing the detached HEAD that
+`git submodule update` leaves behind, so a commit you make inside one has somewhere to land:
+
+- **the branch is named after the superproject's branch.** On `main` you get `main` inside each
+  submodule; on `feature-x` you get `feature-x`. One name describes the whole tree.
+- **it starts where the submodule already stands** — its own HEAD, right after populating. For a
+  submodule that was just cloned in, that is the commit the superproject records for it. For one
+  that was already checked out somewhere else, it is wherever you left it, so nothing moves.
+- **an existing branch of that name is checked out, never moved.** It may carry work from an earlier
+  session, and `checkout -B` is never used.
+
+Nested submodules are populated but deliberately left detached, and nothing already populated is
+ever rewound.
 
 ### With a worktree
 
@@ -336,9 +352,17 @@ the remote. Set `GIT_AUTOSYNC_KEEP_WORKTREE=1` to keep everything instead; reope
 `worktree-<name>` branch is always reused where it stands and never moved onto a newer base.
 
 **A git repo with submodules.** A worktree is a fresh checkout, so its submodule directories start
-out **empty** — this is the case where `SessionStart` populating them matters most. Each top-level
-submodule is then put on a branch named `worktree-<name>`, matching the superproject, so a commit
-inside a submodule lands on a branch belonging to this session rather than on a detached HEAD.
+out **empty** — this is the case where `SessionStart` populating them matters most.
+
+The same rule then applies as above, and the superproject's branch here is `worktree-<name>`:
+
+- **the branch inside each top-level submodule is also named `worktree-<name>`**, matching the
+  superproject, so a commit you make inside a submodule lands on a branch belonging to this session
+  rather than on a detached HEAD.
+- **it starts at the submodule's HEAD right after populating**, which in a fresh worktree is the
+  commit the superproject records for it — a worktree's submodules have nowhere else to have been.
+- **an existing `worktree-<name>` branch is checked out as-is**, which is how a reopened worktree
+  picks its submodules back up exactly where the last session left them.
 
 Teardown handles them without you noticing: git keeps a worktree's submodules under
 `.git/worktrees/<name>/`, so removing the worktree removes their branches too, and nothing is left

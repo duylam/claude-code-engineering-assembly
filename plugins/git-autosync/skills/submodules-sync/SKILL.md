@@ -35,8 +35,8 @@ Explain these when a warning names one — each is a deliberate refusal, not a b
 - **A populated submodule is never rewound.** `git submodule update` is only run over a top-level
   submodule that is not populated yet. A populated one is only asked to fill in its own nested
   submodules, so local commits inside it survive.
-- **An existing submodule branch is never moved.** If the branch already exists it is checked out,
-  never reset to the gitlink (`checkout -B` is not used).
+- **An existing submodule branch is never moved.** If the branch already exists it is checked out
+  where it stands, never reset (`checkout -B` is not used).
 - **Nested submodules get no branch.** They are populated and left on their gitlink commit — they
   are vendored third-party trees.
 - **Superproject on a detached HEAD** → submodules are populated but not attached; there is no
@@ -45,7 +45,9 @@ Explain these when a warning names one — each is a deliberate refusal, not a b
 
 ## Notes
 
-- A branch that has to be created is based on the **gitlink** — the commit the superproject records
-  for that submodule — not on wherever the submodule's own HEAD happens to sit.
+- The branch is named after the **superproject's current branch**, and a branch that has to be
+  created starts at the submodule's **own HEAD once populated** — where it already stands. For a
+  submodule just cloned in that is the commit the superproject records for it; for one already
+  checked out elsewhere it is wherever the user left it, so nothing moves.
 - Every warning names the exact `git -C ... ` command to run by hand. Offer it; do not run a
   destructive variant of it unprompted.
