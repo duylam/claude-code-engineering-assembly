@@ -77,9 +77,12 @@ on_error() {
     # `set -E` propagates this trap into command-substitution subshells too.
     # Reporting from there would splice the warning into the value the caller
     # is capturing - e.g. BRANCH="$(...)" would come back holding a warning.
-    # Inside a subshell ($BASHPID differs from $$), just fail; the parent
-    # decides what the failure means.
-    if [[ "$BASHPID" != "$$" ]]; then
+    # Inside a subshell, just fail; the parent decides what the failure means.
+    #
+    # BASH_SUBSHELL, not BASHPID: bash 3.2 - still /bin/bash on macOS - has no
+    # BASHPID, so reading it under `set -u` killed this handler with an
+    # "unbound variable" error on exactly the paths it exists to keep quiet.
+    if [[ "${BASH_SUBSHELL:-0}" -ne 0 ]]; then
         exit "$code"
     fi
 

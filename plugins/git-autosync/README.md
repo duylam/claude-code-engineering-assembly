@@ -25,6 +25,7 @@ session, with no prompting and no configuration:
 ## Requirements
 
 - `git`
+- `bash` 3.2 or newer — the macOS system `/bin/bash` qualifies
 - `jq` — optional. Without it the hooks fall back to plain-text output and a `sed`-based payload
   parse, so nothing breaks; with it the session-start report arrives as a proper hook JSON envelope.
 
@@ -75,6 +76,11 @@ repository even when invoked from a worktree, since that is where the branch ref
 It never runs `git checkout`. An unattended hook must not move a repository off the branch a human
 left it on.
 
+It also never touches a branch other than the default one. A feature branch that has fallen behind
+`origin/main` stays behind: reconciling it is a merge or a rebase, with conflicts to resolve, and
+that is a decision for you rather than for a hook. What the plugin guarantees instead is that a
+branch it creates *starts* level with the remote — see the worktree section below.
+
 ### Worktree creation — `on-worktree-create.sh`
 
 Claude Code cuts the worktree's branch **before** any other hook runs: `WorktreeCreate` fires in the
@@ -90,7 +96,21 @@ fast-forwarded *in time for the new branch to be cut from it*.
 > |---|---|
 > | directory | `<repo>/.worktrees/<name>` |
 > | branch | `worktree-<name>` |
+> | cut from | the local default branch the sync just updated — **not** the main repo's `HEAD` |
 > | locked | yes, so `git worktree prune` cannot collect a live session's worktree |
+>
+> The start point is named explicitly, because `git worktree add -b` defaults to `HEAD` — whatever
+> branch the clone happened to be left on. That default is what makes a session open on a branch
+> already behind `origin/main`, which is the whole thing this hook exists to prevent.
+>
+> It is the **local** `main`, not `<remote>/main`. When the sync had to stop — dirty repo, diverged
+> branch — the local ref still carries commits you made and have not pushed, and a base that
+> silently drops them would be worse than one that is merely behind. The sync warns in that case.
+> A repo with neither `main` nor `master` falls back to `HEAD`, so an unusual default branch name
+> still gets a worktree rather than an error.
+>
+> An existing `worktree-<name>` branch is reused where it stands and never moved onto the new base:
+> it may carry work from an earlier session.
 >
 > If you already rely on Claude Code's default worktree location (`.claude/worktrees/<name>`),
 > note the change of path.

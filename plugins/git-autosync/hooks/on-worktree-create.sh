@@ -14,7 +14,9 @@
 # has to create the worktree itself:
 #
 #     dir    <repo>/.worktrees/<name>
-#     branch worktree-<name>
+#     branch worktree-<name>, cut from the local default branch the sync just
+#            updated (falling back to HEAD when the repo has neither main nor
+#            master), NOT from whatever branch the clone was left on
 #     locked (as Claude Code's own worktrees are, so `git worktree prune`
 #             cannot collect a live session's worktree)
 #
@@ -31,6 +33,11 @@ readonly SCRIPT_NAME="$(basename "$0")"
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SYNC_SCRIPT="$SCRIPT_DIR/git-sync.sh"
 readonly WORKTREE_SUBDIR=".worktrees"
+
+# shellcheck source=lib/git-common.sh
+# For BRANCH_CANDIDATES and resolve_default_branch: the new branch has to start
+# from the same branch git-sync.sh just updated.
+source "$SCRIPT_DIR/lib/git-common.sh"
 
 PAYLOAD=""
 
@@ -97,14 +104,40 @@ fi
 readonly BRANCH="worktree-$name"
 worktree_dir="$repo/$WORKTREE_SUBDIR/$name"
 
+# Where a NEW branch starts. `git worktree add -b <branch> <dir>` with no
+# commit-ish defaults to HEAD - whatever branch this clone was left on, which
+# is exactly the stale starting point the sync above exists to avoid. Naming
+# the default branch explicitly is what makes that sync count.
+#
+# The LOCAL ref, not <remote>/<branch>: when the sync had to stop (dirty repo,
+# diverged branch) the local one still carries commits the human made and has
+# not pushed, and a base that silently drops those is worse than one that is
+# merely behind. git-sync.sh has already warned about that case by here.
+resolve_base() {
+    local base
+
+    base="$(resolve_default_branch "$repo" heads)"
+    if [[ -z "$base" ]]; then
+        # Some other default branch name, or a repo with no commits yet. Fall
+        # back to the old behaviour rather than cost the user a worktree.
+        echo "$SCRIPT_NAME: no local ${BRANCH_CANDIDATES[*]} branch; cutting $BRANCH from HEAD" >&2
+        base="HEAD"
+    fi
+
+    echo "$base"
+}
+
 if [[ -e "$worktree_dir/.git" ]]; then
     echo "Reusing existing worktree at $worktree_dir" >&2
 elif git -C "$repo" show-ref --verify --quiet "refs/heads/$BRANCH"; then
+    # An existing branch may carry work from an earlier session, so it is used
+    # where it stands and never moved onto the default branch.
     echo "Branch $BRANCH already exists; creating worktree at $worktree_dir on it..." >&2
     git -C "$repo" worktree add "$worktree_dir" "$BRANCH" >&2
 else
-    echo "Creating worktree at $worktree_dir on new branch $BRANCH..." >&2
-    git -C "$repo" worktree add -b "$BRANCH" "$worktree_dir" >&2
+    base="$(resolve_base)"
+    echo "Creating worktree at $worktree_dir on new branch $BRANCH from $base..." >&2
+    git -C "$repo" worktree add -b "$BRANCH" "$worktree_dir" "$base" >&2
 fi
 
 # Match Claude Code's own worktrees; locking an already-locked one just errors.

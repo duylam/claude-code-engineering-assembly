@@ -43,10 +43,9 @@ readonly SCRIPT_NAME="$(basename "$0")"
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # shellcheck source=lib/git-common.sh
+# Also supplies BRANCH_CANDIDATES - the default branch names, tried in order,
+# with the first one that exists on the remote winning.
 source "$SCRIPT_DIR/lib/git-common.sh"
-
-# Tried in order; the first one that exists on the remote wins.
-readonly BRANCH_CANDIDATES=(main master)
 
 START_DIR="$PWD"
 MAIN_REPO=""
@@ -79,9 +78,13 @@ on_error() {
     # `set -E` propagates this trap into command-substitution subshells too.
     # Reporting from there would splice the warning into the value the caller
     # is capturing - e.g. MAIN_REPO="$(resolve_main_repo ...)" would come back
-    # holding "Warning: ...". Inside a subshell ($BASHPID differs from $$),
-    # just fail; the parent decides what the failure means.
-    if [[ "$BASHPID" != "$$" ]]; then
+    # holding "Warning: ...". Inside a subshell, just fail; the parent decides
+    # what the failure means.
+    #
+    # BASH_SUBSHELL, not BASHPID: bash 3.2 - still /bin/bash on macOS - has no
+    # BASHPID, so reading it under `set -u` killed this handler with an
+    # "unbound variable" error on exactly the paths it exists to keep quiet.
+    if [[ "${BASH_SUBSHELL:-0}" -ne 0 ]]; then
         exit "$code"
     fi
 
@@ -133,19 +136,6 @@ behind_count() {
     git -C "$MAIN_REPO" rev-list --count "refs/heads/$1..$2" 2>/dev/null || echo "?"
 }
 
-# The first candidate branch that exists on the remote, empty when none does.
-# Read from the remote-tracking refs, so this must run after the fetch.
-resolve_target_branch() {
-    local candidate
-
-    for candidate in "${BRANCH_CANDIDATES[@]}"; do
-        if git -C "$MAIN_REPO" show-ref --verify --quiet "refs/remotes/$REMOTE/$candidate"; then
-            echo "$candidate"
-            return 0
-        fi
-    done
-}
-
 main() {
     local branch remote_sha local_sha worktree dirty
 
@@ -168,7 +158,8 @@ main() {
         finish
     fi
 
-    branch="$(resolve_target_branch)"
+    # Read from the remote-tracking refs, so this must run after the fetch.
+    branch="$(resolve_default_branch "$MAIN_REPO" "remotes/$REMOTE")"
     if [[ -z "$branch" ]]; then
         add_warning "$REMOTE has no ${BRANCH_CANDIDATES[*]} branch; cannot merge a known default branch name"
         finish

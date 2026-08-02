@@ -9,6 +9,12 @@
 # place - the caller's own `finish`.
 # ============================================================================
 
+# The names treated as a repository's default branch, in priority order. Kept
+# here rather than in one worker so the sync and the worktree hook can never
+# disagree about which branch "the default branch" means - a disagreement
+# would silently cut new branches from the wrong place.
+readonly BRANCH_CANDIDATES=(main master)
+
 # Collected output. Notes are things that were changed, warnings are things a
 # human has to deal with. Both are rendered together, warnings last.
 NOTES=()
@@ -80,6 +86,24 @@ first_remote() {
     remote="$(git -C "$1" remote 2>/dev/null | head -n 1)"
     [[ -n "$remote" ]] || return 1
     echo "$remote"
+}
+
+# The first BRANCH_CANDIDATES entry that exists in repo $1 under refs/$2, or
+# nothing when none does. $2 selects the namespace to look in: `heads` for
+# local branches, `remotes/<remote>` for remote-tracking ones.
+resolve_default_branch() {
+    local repo="$1" namespace="$2" candidate
+
+    for candidate in "${BRANCH_CANDIDATES[@]}"; do
+        if git -C "$repo" show-ref --verify --quiet "refs/$namespace/$candidate"; then
+            echo "$candidate"
+            return 0
+        fi
+    done
+
+    # "No default branch here" is an answer, not a failure - callers test the
+    # output, and returning non-zero would trip the caller's `set -e`.
+    return 0
 }
 
 # Absolute path of the worktree that currently has branch $2 checked out, or
