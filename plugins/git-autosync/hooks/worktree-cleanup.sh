@@ -46,8 +46,11 @@ readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # For resolve_main_repo, branch_in_worktree and worktree_is_registered.
 source "$SCRIPT_DIR/lib/git-common.sh"
 
-readonly WORKTREE_SUBDIR=".worktrees"
-readonly BRANCH_PREFIX="worktree-"
+# Both read from git-common.sh rather than restated here: cleanup must
+# recognise exactly what on-worktree-create.sh writes, and a copy that drifts
+# would leave worktrees behind or refuse to remove its own.
+readonly WORKTREE_SUBDIR="${WORKTREE_DIRS[0]}"
+readonly BRANCH_PREFIX="$SESSION_BRANCH_PREFIX"
 
 WORKTREE=""
 DRY_RUN=0

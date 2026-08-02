@@ -14,7 +14,6 @@
 #
 #   not a git repo                       -> silent, exit 0
 #   repo has no remote                   -> silent, exit 0
-#   main repo has uncommitted changes    -> warn, exit 0
 #   fetch fails (offline)                -> warn, exit 0
 #   neither main nor master on remote    -> warn, exit 0
 #   local branch already == remote       -> silent, exit 0
@@ -22,6 +21,12 @@
 #   branch checked out in a dirty tree   -> warn, exit 0
 #   branch checked out in a clean tree   -> git merge --ff-only there
 #   branch checked out nowhere           -> git fetch <remote> <br>:<br>
+#
+# The fetch is NOT gated on a clean working tree; only the steps that move a
+# tree are. See the note in main() for why that distinction is load-bearing.
+#
+# It also aligns the session's own `worktree-*` branch when that branch was cut
+# from a stale base and carries no work of its own - see align_session_branch.
 #
 # It never runs `git checkout`: an automatic hook must not move a repository
 # off whatever branch a human left it on. When the default branch is not
@@ -136,8 +141,70 @@ behind_count() {
     git -C "$MAIN_REPO" rev-list --count "refs/heads/$1..$2" 2>/dev/null || echo "?"
 }
 
+# Fast-forward the session's OWN worktree branch onto the default branch.
+#
+# on-worktree-create.sh cuts a session branch from an already-synced base, but
+# it only gets the chance when Claude Code fires WorktreeCreate. It does not
+# always: `claude remote-control --spawn worktree` builds the worktree itself,
+# under `.claude/worktrees/<name>`, and cuts `worktree-<name>` straight from
+# `<remote>/<default>` - a remote-tracking ref that is only as fresh as the last
+# fetch. Nothing the plugin does at WorktreeCreate applies to that worktree,
+# because WorktreeCreate never happened.
+#
+# SessionStart runs inside the finished worktree and is the last moment to
+# repair it. So this repairs exactly the case where repairing cannot lose
+# anything:
+#
+#   - a LINKED worktree, never the main checkout
+#   - on a `worktree-*` branch - the session namespace, not a human's branch
+#   - carrying NO commits of its own beyond <remote>/<default>
+#   - with a clean tree
+#
+# Under those four, the branch is a pristine session base that simply started
+# too far back, and `merge --ff-only` moves a ref over an identical tree. Any
+# branch with work on it, or any dirty tree, is only reported: reconciling one
+# is a rebase or a merge with conflicts to resolve, and that is the human's
+# call - the same line the sync already draws for feature branches.
+align_session_branch() {
+    local branch="$1" remote_sha="$2"
+    local tree current ahead behind
+
+    tree="$(git -C "$START_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
+    [[ -n "$tree" ]] || return 0
+
+    # The main checkout is never touched, whatever branch it is on.
+    [[ "$tree" != "$MAIN_REPO" ]] || return 0
+    worktree_is_registered "$MAIN_REPO" "$tree" || return 0
+
+    # Detached HEAD yields nothing, and falls out of the prefix test below.
+    current="$(git -C "$tree" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+    [[ "$current" == "$SESSION_BRANCH_PREFIX"* ]] || return 0
+    [[ "$current" != "$branch" ]] || return 0
+
+    behind="$(git -C "$MAIN_REPO" rev-list --count "$current..$remote_sha" 2>/dev/null || echo 0)"
+    [[ "$behind" =~ ^[0-9]+$ && "$behind" -gt 0 ]] || return 0
+
+    ahead="$(git -C "$MAIN_REPO" rev-list --count "$remote_sha..$current" 2>/dev/null || echo 0)"
+    if [[ ! "$ahead" =~ ^[0-9]+$ ]] || [[ "$ahead" -gt 0 ]]; then
+        add_warning "$current carries $ahead commit(s) of its own and is $behind behind $REMOTE/$branch; rebase or merge it by hand in $tree"
+        return 0
+    fi
+
+    if [[ -n "$(git -C "$tree" status --porcelain)" ]]; then
+        add_warning "$current is $behind commit(s) behind $REMOTE/$branch but $tree has uncommitted changes; not fast-forwarding"
+        return 0
+    fi
+
+    if run_capture git -C "$tree" merge --ff-only "$remote_sha"; then
+        add_note "fast-forwarded $current to $REMOTE/$branch (${remote_sha:0:7}); it was cut from a base $behind commit(s) stale"
+        return 0
+    fi
+
+    add_warning "could not fast-forward $current in $tree ($(capture_reason))"
+}
+
 main() {
-    local branch remote_sha local_sha worktree dirty
+    local branch remote_sha local_sha worktree
 
     # Rule one: outside a git repo, or in a repo with no remote, this plugin
     # does nothing at all - silently, so it stays invisible in projects it has
@@ -145,14 +212,22 @@ main() {
     MAIN_REPO="$(resolve_main_repo "$START_DIR")" || exit 0
     REMOTE="$(first_remote "$MAIN_REPO")" || exit 0
 
-    # A dirty main checkout is a human's unfinished business. Bail before the
-    # fetch: there is nothing this script would be allowed to do afterwards.
-    dirty="$(git -C "$MAIN_REPO" status --porcelain)"
-    if [[ -n "$dirty" ]]; then
-        add_warning "$MAIN_REPO has uncommitted changes; skipping the sync from $REMOTE"
-        finish
-    fi
+    # Before anything reads `git status`: a worktree directory that is not
+    # ignored makes the main checkout dirty forever, and the dirty-tree guards
+    # below would then refuse every fast-forward for the life of the clone.
+    ensure_worktrees_excluded "$MAIN_REPO"
 
+    # NOTE: there is deliberately NO dirty check on the main checkout here.
+    # `git fetch` writes only to the object store and the remote-tracking refs;
+    # it cannot touch a working tree, cannot conflict with uncommitted work,
+    # and is safe in any repository state. Gating it on a clean tree is what
+    # let a single stray untracked directory - `.claude/worktrees/`, which the
+    # plugin itself did not create - starve the fetch permanently, leaving
+    # every `<remote>/<default>` ref stale and every branch cut from one behind.
+    #
+    # The tree-mutating step still checks: sync_checked_out refuses to merge
+    # into a dirty worktree, and so does align_session_branch. The guard lives
+    # where the risk is.
     if ! run_capture git -C "$MAIN_REPO" fetch --quiet "$REMOTE"; then
         add_warning "could not fetch $REMOTE ($(capture_reason))"
         finish
@@ -168,9 +243,16 @@ main() {
     remote_sha="$(git -C "$MAIN_REPO" rev-parse "refs/remotes/$REMOTE/$branch")"
     local_sha="$(git -C "$MAIN_REPO" rev-parse -q --verify "refs/heads/$branch" || true)"
 
-    # Already in sync - the common case, and the quiet one.
+    # The tree the session is actually working in comes first, and is checked
+    # unconditionally: a session branch cut from a stale base is behind even
+    # when the default branch itself is perfectly in sync, so this must not sit
+    # behind the early exit below.
+    align_session_branch "$branch" "$remote_sha"
+
+    # Already in sync - the common case, and the quiet one. `finish`, not a
+    # bare `exit 0`: notes collected above still have to be rendered.
     if [[ "$local_sha" == "$remote_sha" ]]; then
-        exit 0
+        finish
     fi
 
     # A local branch that is not an ancestor of the remote carries commits of

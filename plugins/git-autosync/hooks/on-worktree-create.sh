@@ -32,12 +32,19 @@ set -Eeuo pipefail
 readonly SCRIPT_NAME="$(basename "$0")"
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SYNC_SCRIPT="$SCRIPT_DIR/git-sync.sh"
-readonly WORKTREE_SUBDIR=".worktrees"
 
 # shellcheck source=lib/git-common.sh
 # For BRANCH_CANDIDATES and resolve_default_branch: the new branch has to start
-# from the same branch git-sync.sh just updated.
+# from the same branch git-sync.sh just updated. Also for WORKTREE_DIRS and
+# SESSION_BRANCH_PREFIX below - the directory this hook writes to and the branch
+# prefix it stamps have to be the same ones the sync excludes and the cleanup
+# recognises, so all three read them from one place.
 source "$SCRIPT_DIR/lib/git-common.sh"
+
+# The plugin's own worktree root: the first entry, the one it chooses when it
+# is in charge. The rest of WORKTREE_DIRS are locations Claude Code may use
+# instead, which this hook never writes to but the exclude still has to cover.
+readonly WORKTREE_SUBDIR="${WORKTREE_DIRS[0]}"
 
 PAYLOAD=""
 
@@ -55,28 +62,6 @@ payload_field() {
     fi
 }
 
-# Keep the worktree directory out of `git status`. Without this the first
-# worktree makes the main repo permanently dirty, and every later sync would
-# skip itself on the dirty check. info/exclude is local to the clone, so this
-# commits nothing on the user's behalf and shows up in no diff.
-ensure_excluded() {
-    local repo="$1" common exclude
-
-    if git -C "$repo" check-ignore -q "$WORKTREE_SUBDIR" 2>/dev/null; then
-        return 0
-    fi
-
-    common="$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
-    [[ -n "$common" && -d "$common" ]] || return 0
-
-    exclude="$common/info/exclude"
-    mkdir -p "$common/info" 2>/dev/null || return 0
-    if ! printf '/%s/\n' "$WORKTREE_SUBDIR" >>"$exclude" 2>/dev/null; then
-        return 0
-    fi
-    echo "$SCRIPT_NAME: added /$WORKTREE_SUBDIR/ to $exclude" >&2
-}
-
 PAYLOAD="$(cat || true)"
 repo="$(payload_field cwd)"
 name="$(payload_field name)"
@@ -91,7 +76,14 @@ if toplevel="$(git -C "$repo" rev-parse --show-toplevel 2>/dev/null)" && [[ -n "
     repo="$toplevel"
 fi
 
-ensure_excluded "$repo"
+# Keep every worktree directory out of `git status` before anything reads it.
+# git-sync.sh does this too, but it returns early in a repo with no remote -
+# and a remote-less repo still gets worktrees, so it still needs the exclude.
+# Its notes go to stderr here, where they cannot pollute the path contract.
+ensure_worktrees_excluded "$repo"
+render_report >&2
+NOTES=()
+WARNINGS=()
 
 # Bring the default branch up to date first - the whole point of hooking this
 # event. Its stdout is redirected to stderr so it cannot pollute the path
@@ -101,7 +93,7 @@ if [[ -f "$SYNC_SCRIPT" ]]; then
     bash "$SYNC_SCRIPT" -C "$repo" >&2 || true
 fi
 
-readonly BRANCH="worktree-$name"
+readonly BRANCH="$SESSION_BRANCH_PREFIX$name"
 worktree_dir="$repo/$WORKTREE_SUBDIR/$name"
 
 # Where a NEW branch starts. `git worktree add -b <branch> <dir>` with no
