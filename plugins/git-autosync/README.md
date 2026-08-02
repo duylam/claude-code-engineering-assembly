@@ -8,7 +8,10 @@ session, with no prompting and no configuration:
 - the default branch is level with the remote,
 - a new worktree is cut from that freshly synced branch, not from whatever was left behind days ago,
 - every submodule is populated,
-- every top-level submodule sits on a branch, so a commit made inside one goes somewhere.
+- every top-level submodule sits on a branch, so a commit made inside one goes somewhere,
+
+and when the session quits, the worktree it created is removed again, branch and all — so a hundred
+sessions leave no trace of themselves in your repository.
 
 > ### Built for Claude Code Remote Sessions
 >
@@ -44,20 +47,27 @@ No settings, no `.local.md`, nothing to configure.
 |---|---|---|---|
 | `WorktreeCreate` | `on-worktree-create.sh` | 300s | Syncs the default branch, **then creates the worktree** |
 | `SessionStart` (`startup`, `resume`) | `session-start.sh` | 600s | Syncs the default branch, then the submodules |
+| `WorktreeRemove` | `on-worktree-remove.sh` | 120s | Removes the worktree and its branch when the session quits |
 
 Timeouts follow the slowest git operation the command can reach: **5 minutes** for a command that
 runs `git fetch`, **10 minutes** for one that also runs `git submodule` — a first submodule clone
 over a slow link is the worst case either hook has. A killed hook is not retried, so these are
-deliberately generous; a hook that finishes early costs nothing.
+deliberately generous; a hook that finishes early costs nothing. Teardown gets **2 minutes**: it
+touches nothing but the local disk.
 
 ### Rule zero: stay out of the way
 
-Every hook does **nothing at all**, silently, when the project is:
+Nothing is synced, and **nothing is printed**, when the project is:
 
 - not inside a git repository, or
 - inside one that has **no remote**.
 
-There is nothing to sync in either case, and a plugin that prints warnings about it would be noise.
+There is nothing to pull from in either case, and a plugin that printed warnings about it would be
+noise.
+
+Worktrees are the exception, because they need no remote: one is still created off whatever local
+default branch exists, and still removed again when the session ends. Both are purely local
+operations.
 
 ### Sync — `git-sync.sh`
 
@@ -120,6 +130,54 @@ make the main repo permanently dirty — and every later sync would then skip it
 check. `info/exclude` is local to the clone, so nothing is committed on your behalf and nothing
 appears in a diff.
 
+### Worktree teardown — `worktree-cleanup.sh`
+
+Taking over `WorktreeCreate` means taking over the other end of the lifecycle too. Claude Code stops
+running its own `git worktree remove` for a worktree a hook created and fires `WorktreeRemove`
+instead — so without this hook, **every worktree session would leave its directory and its branch
+behind forever**. The `git worktree lock` above makes that permanent rather than temporary: Claude
+Code's periodic sweep never releases a lock it did not set itself.
+
+So when the session ends, the worktree and its `worktree-<name>` branch go away.
+
+> **This is the one destructive script in the plugin, and it does not ask.** The worktree is removed
+> whatever state it is in — uncommitted changes, untracked files and unpushed commits all go with
+> it. A worktree Claude Code has finished with is disposable by construction; if you want to keep
+> what is in one, commit it and push it, or set the escape hatch below.
+>
+> Set **`GIT_AUTOSYNC_KEEP_WORKTREE=1`** and nothing is removed. The hook reports what it would have
+> deleted (visible under `claude --debug`) and stops. Reopening `claude --worktree <same-name>` then
+> picks the worktree up exactly where you left it.
+
+It fires for three different reasons, and only two of them mean *the session is over*:
+
+| `reason` | | |
+|---|---|---|
+| `session_end` | the Claude Code instance quit | cleans up |
+| `user_delete` | `claude delete <session>` | cleans up |
+| `subagent_end` | a subagent with its own worktree finished | **leaves it alone** |
+
+A subagent with `isolation: worktree` gets a *separate* worktree of its own, and `subagent_end`
+fires while the conversation that spawned it is still running. Whatever the subagent left on disk is
+worth more than the disk space is, so the plugin does not touch it; Claude Code's own periodic sweep
+reclaims the work-free ones on its own schedule.
+
+What it refuses to touch, in every case:
+
+- **anything git does not report as a linked worktree** of the repository. Being registered in
+  `git worktree list` is the proof of ownership — a directory that merely looks like a worktree is
+  not one, and an already-removed worktree is silently nothing to do.
+- **the main checkout**, which is listed by `git worktree list` too and is excluded by name.
+- **any branch not named `worktree-*`.** Point Claude Code at a worktree you made yourself and the
+  directory goes but your branch stays.
+- **anything remote.** No push, no `push --delete`, no fetch. Only local disk.
+
+Submodules need no special handling in practice. Git gives a submodule populated inside a worktree
+its own directory under `.git/worktrees/<name>/`, and removing the worktree takes that with it, so
+the `worktree-<name>` branch inside each submodule disappears on its own. Where a git version shares
+that directory with the main checkout instead, the branch is deleted only if the superproject
+already records every commit on it — an unmerged one is left alone and named in the report.
+
 ### Submodules — `ensure-submodules.sh`
 
 Runs against the tree the session actually opened in: the worktree in a worktree session, the
@@ -152,6 +210,11 @@ So every git failure becomes a `Warning: ...` line naming the exact command to r
 session continues. When everything is already correct the plugin prints **nothing at all** — no
 output, no context spent.
 
+Teardown is the exception to who reads those warnings: Claude Code surfaces `WorktreeRemove` output
+in debug mode only, and by then you have left anyway. Run `claude --debug` to see it, or re-run
+`worktree-cleanup.sh` by hand — a cleanup that half-finished leaves the worktree registered, and
+running it again picks up where it stopped.
+
 ## Slash commands
 
 Both workers are also available on demand, for re-running a sync mid-session or for testing the
@@ -176,24 +239,127 @@ Every script is a normal CLI with `-h`, usable outside Claude Code:
 ```bash
 bash hooks/git-sync.sh -C /path/to/repo
 bash hooks/ensure-submodules.sh -C /path/to/worktree
+bash hooks/worktree-cleanup.sh -n -C /path/to/repo/.worktrees/name   # -n: report only
 ```
+
+`worktree-cleanup.sh` is the way to reclaim worktrees a previous session left behind — from before
+this plugin handled teardown, or from a `claude -p` run. Try `-n` first: it prints what it would
+remove and removes nothing.
 
 ## Layout
 
 ```
 git-autosync/
 ├── hooks/
-│   ├── hooks.json              # SessionStart + WorktreeCreate registration
+│   ├── hooks.json              # SessionStart + WorktreeCreate + WorktreeRemove registration
 │   ├── session-start.sh        # entry point: sync, then submodules, one JSON report
 │   ├── on-worktree-create.sh   # entry point: sync, then create the worktree
+│   ├── on-worktree-remove.sh   # entry point: filter the reason, then tear down
 │   ├── git-sync.sh             # worker: fast-forward the default branch
 │   ├── ensure-submodules.sh    # worker: populate + attach submodules
+│   ├── worktree-cleanup.sh     # worker: remove a worktree and its branch
 │   └── lib/git-common.sh       # shared helpers (repo/remote resolution, reporting)
 └── skills/
     ├── git-sync/SKILL.md
     └── submodules-sync/SKILL.md
 ```
 
-The two entry points hold the hook plumbing (payload parsing, JSON envelopes, the worktree stdout
-contract); the two workers hold the git logic and know nothing about hooks. That is why the skills
-can call the workers directly.
+The three entry points hold the hook plumbing (payload parsing, JSON envelopes, the worktree stdout
+contract, the `reason` filter); the three workers hold the git logic and know nothing about hooks.
+That is why the skills can call the workers directly.
+
+`worktree-cleanup.sh` has no skill on purpose. The other two workers are safe to re-run at any
+moment; this one deletes a working tree.
+
+## What a session actually sees
+
+Everything above describes one hook at a time. This section is the other view: you open an
+interactive session in some project, and this is what the plugin does to it — start to finish.
+
+|  | `claude` | `claude --worktree <name>` |
+|---|---|---|
+| **not a git repo** | nothing, silently | ⚠️ the session does not start |
+| **git repo, no submodules** | `main` pulled level with the remote before your first prompt | you work in `.worktrees/<name>` on `worktree-<name>`, cut from the freshly pulled `main`; both are deleted when you quit |
+| **git repo with submodules** | the above, plus every submodule populated and each top-level one on a branch | the above, plus submodules populated *inside* the worktree and put on `worktree-<name>` |
+
+One rule cuts across the whole table: **in a repository with no remote, no sync happens and nothing
+is printed** — there is nothing to pull from. Worktrees still work there; creating and removing one
+never needs a remote.
+
+### Without a worktree
+
+You run `claude` in the project directory and work in the checkout you already have. Only
+`SessionStart` fires.
+
+**Not a git repo.** Nothing happens and nothing is printed. The plugin is invisible in projects it
+has no business touching — no warning, no "skipping" line, no context spent.
+
+**A git repo, no submodules.** Before your first prompt, the local `main` (or `master`) is
+fast-forwarded from `origin`. You are never switched between branches: if `main` is checked out and
+clean it is fast-forwarded in place, and if it is checked out nowhere its ref is updated directly,
+touching no files. Everything else is refused out loud — a dirty checkout, a diverged `main`, an
+unreachable remote each produce one `Warning:` line naming the command to run by hand.
+
+Note what is *not* included: if you are on a feature branch, that branch is not rebased, merged or
+moved. Only the default branch is ever touched.
+
+**A git repo with submodules.** The same sync, and then every submodule is populated recursively —
+so no empty directories to discover mid-task. Each *top-level* submodule is then put on a real
+branch named after whatever branch you are on, replacing the detached HEAD that `git submodule
+update` leaves behind, so a commit you make inside one has somewhere to land. Nested submodules are
+populated but deliberately left detached. Nothing already populated is ever rewound, and a submodule
+branch that already exists is checked out rather than moved.
+
+### With a worktree
+
+`claude --worktree <name>` runs the full set: `WorktreeCreate` before the session exists,
+`SessionStart` inside it, `WorktreeRemove` when you quit.
+
+**Not a git repo.** ⚠️ **The session fails to start.** `WorktreeCreate` has no repository to make a
+worktree in, `git worktree add` fails, and a failed `WorktreeCreate` aborts the launch with git's own
+error. Worktrees require a git repository whether or not this plugin is installed — but with it
+installed the message you get is git's, not Claude Code's. Run `claude` without `--worktree` there.
+
+**A git repo, no submodules.** Before the branch is cut, `main` is fast-forwarded from the remote —
+`WorktreeCreate` is the only moment where that is still in time to matter. You then land in
+`.worktrees/<name>` on a new `worktree-<name>` branch cut from that just-updated `main`, rather than
+from whatever branch the checkout happened to be sitting on. `.worktrees/` is added to
+`.git/info/exclude` on first use so it never shows up as untracked in your main checkout.
+
+The sync then runs a second time from `SessionStart`, now inside the worktree. That one is one cheap
+`git fetch` that finds nothing to do and stays silent.
+
+When you quit, the worktree directory and its `worktree-<name>` branch are both deleted — including
+anything you had not committed. Your main checkout is untouched and nothing is pushed or deleted on
+the remote. Set `GIT_AUTOSYNC_KEEP_WORKTREE=1` to keep everything instead; reopening
+`claude --worktree <same-name>` then resumes exactly where you left off, because an existing
+`worktree-<name>` branch is always reused where it stands and never moved onto a newer base.
+
+**A git repo with submodules.** A worktree is a fresh checkout, so its submodule directories start
+out **empty** — this is the case where `SessionStart` populating them matters most. Each top-level
+submodule is then put on a branch named `worktree-<name>`, matching the superproject, so a commit
+inside a submodule lands on a branch belonging to this session rather than on a detached HEAD.
+
+Teardown handles them without you noticing: git keeps a worktree's submodules under
+`.git/worktrees/<name>/`, so removing the worktree removes their branches too, and nothing is left
+in your main checkout's submodules.
+
+### Two things worth knowing
+
+**`claude -p` is different.** Non-interactive runs have no exit prompt, and Claude Code does not
+clean up their worktrees. If teardown does not run for one, remove it with
+`bash hooks/worktree-cleanup.sh -C <path>` or `git worktree remove --force --force <path>` —
+plain `--force` is not enough, because these worktrees are locked.
+
+**Subagent worktrees are left behind on purpose.** A subagent with `isolation: worktree` gets its own
+worktree from the same `WorktreeCreate` hook, but the plugin does not remove it when the subagent
+finishes — the conversation is still going and its output may still be wanted.
+
+Claude Code has a periodic sweep for exactly these, governed by `cleanupPeriodDays`, and it skips any
+worktree still holding work. Whether it reaches the plugin's is not something to rely on: these
+worktrees are locked, and the sweep releases only locks Claude Code set itself. If they accumulate,
+clear them yourself — `-n` first to see what would go:
+
+```bash
+bash hooks/worktree-cleanup.sh -n -C <repo>/.worktrees/<name>
+```

@@ -123,3 +123,42 @@ worktree_holding_branch() {
         esac
     done < <(git -C "$repo" worktree list --porcelain 2>/dev/null)
 }
+
+# The reverse lookup: the branch checked out in worktree $2 of repo $1, or
+# nothing when that worktree is detached or unknown. Not the same thing as
+# `symbolic-ref` run inside the worktree - this reads the repository's own
+# registry, so it still answers for a worktree whose directory has already been
+# deleted from disk, which is exactly the case teardown has to handle.
+branch_in_worktree() {
+    local repo="$1" target="$2" line path=""
+
+    while IFS= read -r line; do
+        case "$line" in
+            "worktree "*)
+                path="${line#worktree }"
+                ;;
+            "branch refs/heads/"*)
+                if [[ "$path" == "$target" ]]; then
+                    echo "${line#branch refs/heads/}"
+                    return 0
+                fi
+                ;;
+        esac
+    done < <(git -C "$repo" worktree list --porcelain 2>/dev/null)
+}
+
+# Whether $2 is a LINKED worktree of repo $1. The main checkout is listed too,
+# so callers that must not touch it have to exclude it themselves. Registration
+# is the only trustworthy proof that a directory is a worktree git owns; a path
+# that merely looks like one is not.
+worktree_is_registered() {
+    local repo="$1" target="$2" line
+
+    while IFS= read -r line; do
+        if [[ "$line" == "worktree $target" ]]; then
+            return 0
+        fi
+    done < <(git -C "$repo" worktree list --porcelain 2>/dev/null)
+
+    return 1
+}
