@@ -85,10 +85,18 @@ render_report >&2
 NOTES=()
 WARNINGS=()
 
-# Bring the default branch up to date first - the whole point of hooking this
-# event. Its stdout is redirected to stderr so it cannot pollute the path
-# contract. git-sync.sh already warns for itself, does nothing in a repo with
-# no remote, and always exits 0.
+# Bring the repository up to date first - the whole point of hooking this
+# event, since resolve_base below cuts the new branch from the LOCAL default
+# branch ref and this is the last moment to make that ref current.
+#
+# Note the reach: the sync runs against the MAIN checkout, so it also merges
+# <remote>/<default> into whatever branch that checkout is standing on, and
+# syncs its submodules. No mode is passed, so this is always the non-destructive
+# `merge` - a dirty main checkout is reported and left alone.
+#
+# Its stdout is redirected to stderr so it cannot pollute the path contract.
+# git-sync.sh already warns for itself, does nothing in a repo with no remote,
+# and always exits 0 in merge mode.
 if [[ -f "$SYNC_SCRIPT" ]]; then
     bash "$SYNC_SCRIPT" -C "$repo" >&2 || true
 fi

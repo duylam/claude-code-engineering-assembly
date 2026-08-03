@@ -1,40 +1,48 @@
 #!/bin/bash
 
 # ============================================================================
-# git-sync.sh - fast-forward the repo's default branch from its first remote
+# git-sync.sh - bring this working tree level with its remote
 #
-# Runs unattended, so it is deliberately timid: it repairs only what it can do
-# safely, warns otherwise, and ALWAYS exits 0. Problems are reported as
-# `Warning: ...` lines on stdout, never as a non-zero status - a hook that
-# fails would cost the user a session or a worktree, and no sync problem is
-# worth that.
+# Two things happen, in this order:
 #
-# The target is always the MAIN repository, even when this script runs from
-# inside a linked worktree: the object store and the branch refs live there.
+#   1. the branch the tree is ON is reconciled with <remote>/<default>, where
+#      <default> is `main` falling back to `master`   -> sync_current_branch
+#   2. every top-level submodule is populated, attached to a branch, and
+#      reconciled with ITS own remote                 -> ensure-submodules.sh
 #
-#   not a git repo                       -> silent, exit 0
-#   repo has no remote                   -> silent, exit 0
-#   fetch fails (offline)                -> warn, exit 0
-#   neither main nor master on remote    -> warn, exit 0
-#   local branch already == remote       -> silent, exit 0
-#   local branch diverged from remote    -> warn, exit 0 (never a merge commit)
-#   branch checked out in a dirty tree   -> warn, exit 0
-#   branch checked out in a clean tree   -> git merge --ff-only there
-#   branch checked out nowhere           -> git fetch <remote> <br>:<br>
+# and both obey the same mode, one of:
+#
+#   merge (default)  bring the remote's commits in, keeping local ones. A
+#                    fast-forward when the branch has none of its own, a merge
+#                    commit when it does. Never destroys anything.
+#   reset            discard local commits and land exactly on the remote.
+#                    Refuses to touch ANYTHING - superproject or submodule -
+#                    when any tree is dirty, and says so with a non-zero exit.
+#
+# Only a human passes `--mode reset`. Every hook calls this script with no mode
+# at all, so an unattended run is always `merge` and always exits 0. Problems
+# are reported as `Warning: ...` lines on stdout - a hook that failed would
+# cost the user a session or a worktree, and no sync problem is worth that.
+#
+#   not a git repo                        -> silent, exit 0
+#   repo has no remote                    -> silent, exit 0
+#   fetch fails (offline)                 -> warn, exit 0
+#   neither main nor master on remote     -> warn, exit 0
+#   current branch already has the remote -> silent
+#   current branch behind                 -> fast-forward (merge mode)
+#   current branch diverged               -> merge commit (merge mode)
+#   merge conflicts                       -> aborted, warn, exit 0
+#   dirty tree, merge mode                -> warn, skip, exit 0
+#   dirty tree anywhere, reset mode       -> warn, touch nothing, exit 1
 #
 # The fetch is NOT gated on a clean working tree; only the steps that move a
 # tree are. See the note in main() for why that distinction is load-bearing.
 #
-# It also aligns the session's own `worktree-*` branch when that branch was cut
-# from a stale base and carries no work of its own - see align_session_branch.
-#
-# It never runs `git checkout`: an automatic hook must not move a repository
-# off whatever branch a human left it on. When the default branch is not
-# checked out anywhere, its ref is fast-forwarded directly, which touches no
-# working tree at all.
-#
-# Scope is the superproject's default branch only - submodules are handled by
-# ensure-submodules.sh.
+# The DEFAULT BRANCH's ref is maintained separately from all of the above, and
+# only when the tree is not standing on it: `on-worktree-create.sh` cuts new
+# worktrees from that ref, so it has to stay fresh even in a session that never
+# checks it out. That path is still strictly fast-forward and touches no
+# working tree - see sync_ref_only.
 #
 # Output: plain text on stdout, empty when there was nothing to do.
 # Dependencies: git.
@@ -55,16 +63,25 @@ source "$SCRIPT_DIR/lib/git-common.sh"
 START_DIR="$PWD"
 MAIN_REPO=""
 REMOTE=""
+MODE="$DEFAULT_MODE"
+
+# The tree and branch sync_current_branch actually handled, so main() can tell
+# whether the default-branch pass below would be a second go at the same ref.
+CURRENT_TREE=""
+CURRENT_BRANCH=""
 
 usage() {
     cat <<EOF
-Usage: $SCRIPT_NAME [-C <dir>]
+Usage: $SCRIPT_NAME [--mode ${MODES[0]}|${MODES[1]}] [-C <dir>]
 
-Fast-forwards the local default branch (${BRANCH_CANDIDATES[*]}) from the
-repository's first remote, without ever switching branches. Warns and succeeds
-when it cannot. Prints nothing when the repository is already in sync.
+Reconciles the branch this tree is on with <remote>/<default> (one of
+${BRANCH_CANDIDATES[*]}), then does the same for every top-level submodule
+against its own remote. Prints nothing when everything is already in sync.
 
 Options:
+  --mode <${MODES[0]}|${MODES[1]}>
+             ${MODES[0]}: keep local commits, fast-forwarding or merging (default)
+             ${MODES[1]}: discard local commits; fails when any tree is dirty
   -C <dir>   Start from <dir> instead of the current directory
   -h, --help Show this help
 EOF
@@ -74,6 +91,15 @@ EOF
 finish() {
     render_report
     exit 0
+}
+
+# Print the report and stop, unsuccessfully. Reachable ONLY from reset mode,
+# which no hook can select - so the "a hook never fails" contract survives
+# having a failure path in the same file. Nothing has been changed when this
+# runs: the preflight is what decides to call it.
+fail_fast() {
+    render_report
+    exit 1
 }
 
 on_error() {
@@ -101,10 +127,9 @@ trap on_error ERR
 
 # Fast-forward the branch inside the worktree that has it checked out.
 sync_checked_out() {
-    local worktree="$1" branch="$2" remote_sha="$3" dirty
+    local worktree="$1" branch="$2" remote_sha="$3"
 
-    dirty="$(git -C "$worktree" status --porcelain)"
-    if [[ -n "$dirty" ]]; then
+    if tree_is_dirty "$worktree"; then
         add_warning "$worktree has $branch checked out with uncommitted changes; skipping the fast-forward (it is $(behind_count "$branch" "$remote_sha") commit(s) behind $REMOTE/$branch)"
         return 0
     fi
@@ -141,70 +166,135 @@ behind_count() {
     git -C "$MAIN_REPO" rev-list --count "refs/heads/$1..$2" 2>/dev/null || echo "?"
 }
 
-# Fast-forward the session's OWN worktree branch onto the default branch.
+# Reconcile the branch THIS tree is standing on with <remote>/<default>.
 #
-# on-worktree-create.sh cuts a session branch from an already-synced base, but
-# it only gets the chance when Claude Code fires WorktreeCreate. It does not
-# always: `claude remote-control --spawn worktree` builds the worktree itself,
-# under `.claude/worktrees/<name>`, and cuts `worktree-<name>` straight from
-# `<remote>/<default>` - a remote-tracking ref that is only as fresh as the last
-# fetch. Nothing the plugin does at WorktreeCreate applies to that worktree,
-# because WorktreeCreate never happened.
+# This is the main event, and it applies to whatever branch is checked out -
+# the default branch itself, a session `worktree-*` branch, or a human's
+# feature branch. A session that starts on a branch cut days ago should not
+# have to notice; that is the whole point.
 #
-# SessionStart runs inside the finished worktree and is the last moment to
-# repair it. So this repairs exactly the case where repairing cannot lose
-# anything:
+# The stale-session-branch case this grew out of is still the one that bites
+# most often: `claude remote-control --spawn worktree` builds its worktree
+# itself, under `.claude/worktrees/<name>`, and cuts `worktree-<name>` straight
+# from `<remote>/<default>` - a remote-tracking ref only as fresh as the last
+# fetch. WorktreeCreate never fires, so nothing the plugin does there applies,
+# and SessionStart is the last moment to repair it.
 #
-#   - a LINKED worktree, never the main checkout
-#   - on a `worktree-*` branch - the session namespace, not a human's branch
-#   - carrying NO commits of its own beyond <remote>/<default>
-#   - with a clean tree
-#
-# Under those four, the branch is a pristine session base that simply started
-# too far back, and `merge --ff-only` moves a ref over an identical tree. Any
-# branch with work on it, or any dirty tree, is only reported: reconciling one
-# is a rebase or a merge with conflicts to resolve, and that is the human's
-# call - the same line the sync already draws for feature branches.
-align_session_branch() {
+# In merge mode nothing is ever lost: a branch with no commits of its own
+# fast-forwards, one with commits gets a merge commit, and a conflicted merge
+# is rolled back rather than handed to the session as a conflicted index.
+# In reset mode the local commits are discarded outright - which is why
+# assert_clean_recursive runs first and refuses the whole operation over a
+# single dirty tree anywhere in the repository.
+sync_current_branch() {
     local branch="$1" remote_sha="$2"
-    local tree current ahead behind
+    local tree current head_sha behind
 
     tree="$(git -C "$START_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
     [[ -n "$tree" ]] || return 0
 
-    # The main checkout is never touched, whatever branch it is on.
-    [[ "$tree" != "$MAIN_REPO" ]] || return 0
-    worktree_is_registered "$MAIN_REPO" "$tree" || return 0
-
-    # Detached HEAD yields nothing, and falls out of the prefix test below.
     current="$(git -C "$tree" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
-    [[ "$current" == "$SESSION_BRANCH_PREFIX"* ]] || return 0
-    [[ "$current" != "$branch" ]] || return 0
-
-    behind="$(git -C "$MAIN_REPO" rev-list --count "$current..$remote_sha" 2>/dev/null || echo 0)"
-    [[ "$behind" =~ ^[0-9]+$ && "$behind" -gt 0 ]] || return 0
-
-    ahead="$(git -C "$MAIN_REPO" rev-list --count "$remote_sha..$current" 2>/dev/null || echo 0)"
-    if [[ ! "$ahead" =~ ^[0-9]+$ ]] || [[ "$ahead" -gt 0 ]]; then
-        add_warning "$current carries $ahead commit(s) of its own and is $behind behind $REMOTE/$branch; rebase or merge it by hand in $tree"
+    if [[ -z "$current" ]]; then
+        add_warning "$tree is on a detached HEAD; there is no branch to sync (check one out first)"
         return 0
     fi
 
-    if [[ -n "$(git -C "$tree" status --porcelain)" ]]; then
-        add_warning "$current is $behind commit(s) behind $REMOTE/$branch but $tree has uncommitted changes; not fast-forwarding"
+    head_sha="$(git -C "$tree" rev-parse HEAD 2>/dev/null || true)"
+    [[ -n "$head_sha" ]] || return 0
+
+    CURRENT_TREE="$tree"
+    CURRENT_BRANCH="$current"
+
+    if [[ "$MODE" == "reset" ]]; then
+        reset_current_branch "$tree" "$current" "$branch" "$head_sha" "$remote_sha"
         return 0
     fi
 
-    if run_capture git -C "$tree" merge --ff-only "$remote_sha"; then
-        add_note "fast-forwarded $current to $REMOTE/$branch (${remote_sha:0:7}); it was cut from a base $behind commit(s) stale"
+    # Already contains everything the remote has - the common, quiet case.
+    if git -C "$tree" merge-base --is-ancestor "$remote_sha" "$head_sha"; then
         return 0
     fi
 
-    add_warning "could not fast-forward $current in $tree ($(capture_reason))"
+    behind="$(git -C "$tree" rev-list --count "$head_sha..$remote_sha" 2>/dev/null || echo "?")"
+
+    if tree_is_dirty "$tree"; then
+        add_warning "$current is $behind commit(s) behind $REMOTE/$branch but $tree has uncommitted changes; not merging"
+        return 0
+    fi
+
+    merge_current_branch "$tree" "$current" "$branch" "$head_sha" "$remote_sha" "$behind"
+}
+
+# merge mode: `git merge`, with a conflict rolled back rather than left behind.
+#
+# --no-edit so an unattended run never waits on an editor it does not have.
+merge_current_branch() {
+    local tree="$1" current="$2" branch="$3" head_sha="$4" remote_sha="$5" behind="$6"
+
+    if run_capture git -C "$tree" merge --no-edit "$remote_sha"; then
+        if git -C "$tree" merge-base --is-ancestor "$head_sha" "$remote_sha"; then
+            add_note "fast-forwarded $current to $REMOTE/$branch (${remote_sha:0:7}) in $tree; it was $behind commit(s) behind"
+        else
+            add_note "merged $REMOTE/$branch (${remote_sha:0:7}) into $current in $tree"
+        fi
+        return 0
+    fi
+
+    # A conflicted merge leaves a half-written index behind. Handing that to a
+    # session that never asked for a merge is worse than not merging at all, so
+    # put the tree back and let the human start it deliberately.
+    local reason
+    reason="$(capture_reason)"
+    if run_capture git -C "$tree" merge --abort; then
+        add_warning "merging $REMOTE/$branch into $current conflicts ($reason); the merge was rolled back - resolve it yourself with: git -C '$tree' merge $REMOTE/$branch"
+        return 0
+    fi
+
+    add_warning "could not merge $REMOTE/$branch into $current in $tree ($reason), and could not roll the attempt back; check 'git -C \"$tree\" status'"
+}
+
+# reset mode: land exactly on the remote, or change nothing at all.
+reset_current_branch() {
+    local tree="$1" current="$2" branch="$3" head_sha="$4" remote_sha="$5"
+
+    if [[ "$head_sha" == "$remote_sha" ]]; then
+        return 0
+    fi
+
+    # Everything, including every submodule, or nothing. See the function's own
+    # comment for why this cannot be folded into the per-tree steps.
+    assert_clean_recursive "$tree" || fail_fast
+
+    if run_capture git -C "$tree" reset --hard "$remote_sha"; then
+        add_note "reset $current to $REMOTE/$branch (${remote_sha:0:7}) in $tree; the previous tip ${head_sha:0:7} is still reachable from the reflog"
+        return 0
+    fi
+
+    add_warning "could not reset $current in $tree ($(capture_reason))"
+    fail_fast
+}
+
+# Hand the submodules to their own worker, in the same mode.
+#
+# The report collected so far is flushed first, and the buffer emptied, so the
+# child can write straight to stdout in the right order and the caller's final
+# `finish` has nothing left to print. Its exit status is the caller's: the one
+# way it fails is the reset preflight, and that has to reach the human.
+sync_submodules() {
+    local status=0
+
+    [[ -f "$SCRIPT_DIR/ensure-submodules.sh" ]] || return 0
+
+    render_report
+    NOTES=()
+    WARNINGS=()
+
+    bash "$SCRIPT_DIR/ensure-submodules.sh" --mode "$MODE" -C "$START_DIR" || status=$?
+    return "$status"
 }
 
 main() {
-    local branch remote_sha local_sha worktree
+    local branch remote_sha local_sha worktree sub_status=0
 
     # Rule one: outside a git repo, or in a repo with no remote, this plugin
     # does nothing at all - silently, so it stays invisible in projects it has
@@ -225,9 +315,10 @@ main() {
     # plugin itself did not create - starve the fetch permanently, leaving
     # every `<remote>/<default>` ref stale and every branch cut from one behind.
     #
-    # The tree-mutating step still checks: sync_checked_out refuses to merge
-    # into a dirty worktree, and so does align_session_branch. The guard lives
-    # where the risk is.
+    # The tree-mutating steps still check: sync_current_branch refuses to merge
+    # into a dirty tree, sync_checked_out refuses to merge into a dirty
+    # worktree, and reset refuses over a dirty anything. The guard lives where
+    # the risk is.
     if ! run_capture git -C "$MAIN_REPO" fetch --quiet "$REMOTE"; then
         add_warning "could not fetch $REMOTE ($(capture_reason))"
         finish
@@ -241,39 +332,56 @@ main() {
     fi
 
     remote_sha="$(git -C "$MAIN_REPO" rev-parse "refs/remotes/$REMOTE/$branch")"
-    local_sha="$(git -C "$MAIN_REPO" rev-parse -q --verify "refs/heads/$branch" || true)"
 
-    # The tree the session is actually working in comes first, and is checked
-    # unconditionally: a session branch cut from a stale base is behind even
-    # when the default branch itself is perfectly in sync, so this must not sit
-    # behind the early exit below.
-    align_session_branch "$branch" "$remote_sha"
+    # The tree the session is actually working in comes first, whatever branch
+    # it is on. This is the step the session can feel; everything below it is
+    # housekeeping for the NEXT worktree.
+    sync_current_branch "$branch" "$remote_sha"
 
-    # Already in sync - the common case, and the quiet one. `finish`, not a
-    # bare `exit 0`: notes collected above still have to be rendered.
-    if [[ "$local_sha" == "$remote_sha" ]]; then
-        finish
+    # Keep the default branch's ref fresh even in a session that never checks
+    # it out - `on-worktree-create.sh` cuts new worktrees from it. Skipped when
+    # the pass above already handled that very branch, since a branch can only
+    # be checked out in one tree.
+    if [[ "$CURRENT_BRANCH" != "$branch" ]]; then
+        local_sha="$(git -C "$MAIN_REPO" rev-parse -q --verify "refs/heads/$branch" || true)"
+
+        if [[ "$local_sha" != "$remote_sha" ]]; then
+            # A local branch that is not an ancestor of the remote carries
+            # commits of its own. This ref is not the one the session is
+            # standing on, so nobody asked for it to be reconciled - fast-
+            # forwarding is impossible and the rest is the human's call, in
+            # both modes.
+            if [[ -n "$local_sha" ]] && ! git -C "$MAIN_REPO" merge-base --is-ancestor "$local_sha" "$remote_sha"; then
+                add_warning "local $branch has diverged from $REMOTE/$branch; resolve it by hand in $MAIN_REPO"
+            else
+                worktree="$(worktree_holding_branch "$MAIN_REPO" "$branch")"
+                if [[ -n "$worktree" ]]; then
+                    sync_checked_out "$worktree" "$branch" "$remote_sha"
+                else
+                    sync_ref_only "$branch" "$remote_sha"
+                fi
+            fi
+        fi
     fi
 
-    # A local branch that is not an ancestor of the remote carries commits of
-    # its own; fast-forwarding is impossible and merging is the human's call.
-    if [[ -n "$local_sha" ]] && ! git -C "$MAIN_REPO" merge-base --is-ancestor "$local_sha" "$remote_sha"; then
-        add_warning "local $branch has diverged from $REMOTE/$branch; resolve it by hand in $MAIN_REPO"
-        finish
-    fi
+    # Submodules last: they are the slow part, and a superproject that failed
+    # to sync is not a repository worth pulling submodule updates into.
+    sync_submodules || sub_status=$?
 
-    worktree="$(worktree_holding_branch "$MAIN_REPO" "$branch")"
-    if [[ -n "$worktree" ]]; then
-        sync_checked_out "$worktree" "$branch" "$remote_sha"
-    else
-        sync_ref_only "$branch" "$remote_sha"
-    fi
-
-    finish
+    render_report
+    exit "$sub_status"
 }
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --mode)
+            MODE="$(parse_mode "${2:-}")"
+            if [[ -z "$MODE" ]]; then
+                echo "$SCRIPT_NAME: --mode must be one of: ${MODES[*]}" >&2
+                exit 1
+            fi
+            shift 2
+            ;;
         -C)
             START_DIR="${2:-}"
             if [[ -z "$START_DIR" || ! -d "$START_DIR" ]]; then

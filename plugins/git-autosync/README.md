@@ -5,13 +5,18 @@ A session should not start on a stale branch, an empty submodule, or a detached 
 This plugin puts the repository into a known-good git state *before the first prompt* of every
 session, with no prompting and no configuration:
 
-- the default branch is level with the remote,
+- the branch you are on is level with the remote's default branch,
 - a new worktree is cut from that freshly synced branch, not from whatever was left behind days ago,
 - every submodule is populated,
-- every top-level submodule sits on a branch, so a commit made inside one goes somewhere,
+- every top-level submodule sits on a branch, level with *its* remote, so a commit made inside one
+  goes somewhere and starts from something current,
 
 and when the session quits, the worktree it created is removed again, branch and all — so a hundred
 sessions leave no trace of themselves in your repository.
+
+Everything above is the **merge** mode, which never destroys anything and is the only mode the hooks
+can reach. A second mode, **reset**, is available on demand for the times you want the remote's
+state and nothing else — see [sync modes](#sync-modes).
 
 > ### Built for Claude Code Remote Sessions
 >
@@ -45,9 +50,12 @@ No settings, no `.local.md`, nothing to configure.
 
 | Event | Script | Timeout | What it does |
 |---|---|---|---|
-| `WorktreeCreate` | `on-worktree-create.sh` | 300s | Syncs the default branch, **then creates the worktree** |
-| `SessionStart` (`startup`, `resume`) | `session-start.sh` | 600s | Syncs the default branch **and the session's own branch**, then the submodules |
+| `WorktreeCreate` | `on-worktree-create.sh` | 300s | Syncs the main repo, **then creates the worktree** |
+| `SessionStart` (`startup`, `resume`) | `session-start.sh` | 600s | Syncs **the branch the session opened on**, then the submodules |
 | `WorktreeRemove` | `on-worktree-remove.sh` | 120s | Removes the worktree and its branch when the session quits |
+
+No hook ever passes a mode, so **every unattended run is `merge`** and every unattended run exits 0.
+`reset` exists only behind a slash command a human types.
 
 Timeouts follow the slowest git operation the command can reach: **5 minutes** for a command that
 runs `git fetch`, **10 minutes** for one that also runs `git submodule` — a first submodule clone
@@ -69,19 +77,50 @@ Worktrees are the exception, because they need no remote: one is still created o
 default branch exists, and still removed again when the session ends. Both are purely local
 operations.
 
+### Sync modes
+
+One sync operation, two mutually exclusive modes. They apply to the superproject and to every
+submodule alike.
+
+| | `merge` (default) | `reset` |
+|---|---|---|
+| behind the remote | fast-forward | hard reset |
+| diverged from it | merge commit | hard reset, local commits discarded |
+| dirty tree, anywhere | warns, skips that tree | **refuses the whole run**, changes nothing |
+| exit status | always 0 | non-zero when it refused |
+| reachable from a hook | yes, always | never |
+
+`reset` is the answer to "just give me what's on the remote". It is deliberately all-or-nothing:
+before it moves a single ref it checks the superproject **and every populated submodule** for
+uncommitted work, and one dirty tree anywhere aborts the whole operation. A reset that rewound the
+superproject and only then noticed a dirty submodule would leave a repository no single command puts
+back.
+
+What it discards is still in the reflog, and the note it prints names the commit:
+
+```
+reset worktree-foo to origin/main (a1b2c3d) in /repo; the previous tip 9f8e7d6 is
+still reachable from the reflog
+```
+
+Mode selection lives in the slash commands only — `/git-autosync:git-sync reset`. There is no
+setting, no environment variable, and no way for a hook or an agent to reach it.
+
 ### Sync — `git-sync.sh`
 
-Fast-forwards the local default branch from the repository's remote. It targets the **main**
-repository even when invoked from a worktree, since that is where the branch refs live.
+Reconciles **the branch the tree is standing on** with `<remote>/<default>`, then hands the
+submodules to `ensure-submodules.sh`.
 
 - **Remote**: the first one `git remote` lists (`origin` in any ordinary clone).
-- **Branch**: `main`, falling back to `master`. If the remote has neither, it warns that it cannot
-  match a known default branch name and succeeds anyway.
-- **Diverged branch**: warns and stops. It fast-forwards or it does nothing — never a merge commit.
-- **Branch checked out somewhere clean**: `git merge --ff-only` in that worktree.
-- **Branch checked out somewhere dirty**: warns and stops. Uncommitted work is a human's business.
-- **Branch checked out nowhere**: `git fetch <remote> main:main` updates the ref directly, touching
-  no working tree.
+- **Default branch**: `main`, falling back to `master`. If the remote has neither, it warns that it
+  cannot match a known default branch name and succeeds anyway.
+- **Scope**: whatever branch is checked out where the sync was invoked — the default branch itself,
+  a session `worktree-*` branch, or a feature branch you named. In a worktree session that is the
+  worktree; in a plain session it is the checkout you are in.
+- **Detached HEAD**: warns and skips. There is no branch to reconcile.
+- **Conflicting merge**: **rolled back**, not left behind. A session handed a half-written index it
+  never asked for is worse off than one that is merely unsynced, so the merge is aborted and the
+  warning names the command to start it again deliberately.
 
 **The fetch is never gated on a clean working tree.** `git fetch` writes to the object store and the
 remote-tracking refs only — it cannot touch a working tree and cannot collide with uncommitted work,
@@ -89,15 +128,27 @@ so refusing to run it in a dirty repository buys nothing and costs everything: `
 stale, and every branch later cut from it starts behind. The dirty check lives on the steps that
 actually move a tree, and nowhere else.
 
-It never runs `git checkout`. An unattended hook must not move a repository off the branch a human
-left it on.
+**A submodule ahead of its gitlink is not a dirty superproject.** Every dirty check ignores submodule
+state (`--ignore-submodules=all`) and asks each submodule directly instead. Without that, a
+superproject would count as dirty the moment a submodule moved — which is a thing this plugin does on
+purpose, on every run — and would never sync again.
 
-It also never touches a branch other than the default one and the session's own — see
-[session-branch alignment](#session-branch-alignment) below. A feature branch that has fallen behind
-`origin/main` stays behind: reconciling it is a merge or a rebase, with conflicts to resolve, and
-that is a decision for you rather than for a hook.
+#### The default branch's ref
 
-#### Session-branch alignment
+Separately from all of the above, and only when the tree is **not** standing on it, the local default
+branch ref is kept fresh: `on-worktree-create.sh` cuts new worktrees from it, so it has to be current
+even in a session that never checks it out.
+
+That path is unchanged from earlier versions and stays strictly conservative — nobody asked for that
+branch to be reconciled:
+
+- **checked out somewhere clean** → `git merge --ff-only` in that worktree
+- **checked out somewhere dirty** → warns and stops
+- **checked out nowhere** → `git fetch <remote> main:main` updates the ref directly, touching no
+  working tree
+- **diverged** → warns and stops, in both modes
+
+#### Why the branch you are on is in scope at all
 
 `WorktreeCreate` is the plugin's preferred moment to get a session branch right, but **it does not
 always fire**. `claude remote-control --spawn worktree` — the launcher behind remote and mobile
@@ -106,24 +157,14 @@ sessions — builds its worktree itself, under Claude Code's own `.claude/worktr
 the last `git fetch`. No hook of this plugin is consulted. A session can therefore open on a branch
 that is already days behind, which is the one thing the plugin exists to prevent.
 
-`SessionStart` runs *inside* the finished worktree and is the last moment to repair that. So the
-sync also fast-forwards the session's own branch — but only in the narrow case where doing so cannot
-lose anything. All four must hold:
+`SessionStart` runs *inside* the finished worktree and is the last moment to repair that.
 
-| | |
-|---|---|
-| a **linked worktree** | never the main checkout, whatever branch it is on |
-| on a **`worktree-*` branch** | the session namespace; a branch you named yourself is never moved |
-| carrying **no commits of its own** | zero commits beyond `<remote>/<default>` |
-| with a **clean tree** | no uncommitted or untracked changes |
-
-Under those four the branch is a pristine session base that merely started too far back, and
-`git merge --ff-only` moves a ref over an identical tree. Anything else is **reported, not touched**:
-
-```
-Warning: worktree-foo carries 2 commit(s) of its own and is 5 behind origin/main;
-         rebase or merge it by hand in /repo/.claude/worktrees/foo
-```
+Earlier versions repaired only the narrow case where nothing could be lost: a linked worktree, on a
+`worktree-*` branch, with no commits of its own and a clean tree. Everything else was reported and
+left alone. That is no longer the line — merge mode reconciles any attached branch, because a merge
+commit loses nothing either, and a feature branch drifting behind for a whole session was a real
+cost paid to avoid a theoretical one. What survives from the old rule is the part that mattered:
+**a dirty tree is still never touched**, in either mode.
 
 ### Worktree creation — `on-worktree-create.sh`
 
@@ -231,6 +272,7 @@ repository itself otherwise.
    replacing the detached HEAD that `git submodule update` leaves behind. A branch that has to be
    created starts **where the submodule already stands** — its own HEAD once populated. An existing
    branch of that name is simply checked out.
+3. **Sync** that branch with the submodule's **own remote**, in the same mode as the superproject.
 
 For a submodule this run just populated, that start point is the commit the superproject records for
 it: `git submodule update` checks the gitlink out, so HEAD *is* the gitlink. The two only come apart
@@ -238,16 +280,35 @@ for a submodule that was already populated somewhere else — ahead of the gitli
 its own — and there, branching from HEAD is what stops this from moving the tree out from under
 whoever put it there.
 
-Nested submodules are populated but deliberately left on their gitlink: they are vendored
-third-party trees, and a branch named after your feature does not belong inside one.
+#### Which branch a submodule syncs to
 
-Nothing here is destructive:
+A submodule is a repository, so the branch is resolved over *there*, the way git itself defines it:
+
+| in `.gitmodules` | target |
+|---|---|
+| `branch = release-2` | `<the submodule's remote>/release-2` |
+| `branch = .` | git's own shorthand for "whatever the superproject is on" |
+| no `branch` key | the submodule's own default branch (`main`, then `master`) |
+
+It is **not** the commit the superproject records for the submodule. A submodule can therefore end up
+ahead of the gitlink — that is intended, and it is what makes a session's submodules as current as
+its superproject. Committing the new gitlink is your call, not the plugin's.
+
+Nested submodules are populated but deliberately left on their gitlink, with no branch and no sync:
+they are vendored third-party trees, and a branch named after your feature does not belong inside
+one.
+
+In merge mode nothing here is destructive:
 
 - `git submodule update` only runs over a top-level submodule that is **not populated yet**, where
   there is no local work to rewind. A populated one is only asked to fill in its own nested
   submodules.
 - `git checkout -B` is never used, so a submodule branch that already carries local commits is
-  never moved.
+  never moved by the *attach* step.
+- a conflicting merge inside a submodule is rolled back, exactly as in the superproject.
+
+Reset mode is destructive by definition — see [sync modes](#sync-modes) for the preflight that makes
+it all-or-nothing.
 
 ## Failure model
 
@@ -259,6 +320,14 @@ So every git failure becomes a `Warning: ...` line naming the exact command to r
 session continues. When everything is already correct the plugin prints **nothing at all** — no
 output, no context spent.
 
+The sync workers do have one failure path: `reset` mode exits non-zero when its preflight finds a
+dirty tree. That path is unreachable from a hook — no hook passes `--mode`, and `merge` is the
+default — so the contract above is intact. A human who types `/git-autosync:git-sync reset` gets a
+real error, which is what they need; a session that never asked for one never sees it.
+
+`branch-name.sh` is the other exception, and for the same reason: it is never run from a hook. It
+exits non-zero when the *superproject* cannot be switched, because nothing meaningful happened.
+
 Teardown is the exception to who reads those warnings: Claude Code surfaces `WorktreeRemove` output
 in debug mode only, and by then you have left anyway. Run `claude --debug` to see it, or re-run
 `worktree-cleanup.sh` by hand — a cleanup that half-finished leaves the worktree registered, and
@@ -266,28 +335,41 @@ running it again picks up where it stopped.
 
 ## Slash commands
 
-Both workers are also available on demand, for re-running a sync mid-session or for testing the
-plugin without opening a new one:
+The workers are also available on demand, for re-running a sync mid-session, for reaching `reset`
+mode, or for testing the plugin without opening a new session:
 
 | Command | Does |
 |---|---|
-| `/git-autosync:git-sync` | Fast-forward the default branch from the remote |
-| `/git-autosync:submodules-sync` | Populate submodules and attach them to the current branch |
+| `/git-autosync:git-sync [merge\|reset]` | Sync the current branch, then the submodules |
+| `/git-autosync:submodules-sync [merge\|reset]` | The submodule half alone, without touching the superproject |
+| `/git-autosync:branch-name [name]` | Put the superproject **and every submodule** on one named branch |
 
-Both accept an optional path; both default to `$CLAUDE_PROJECT_DIR`.
+All three accept an optional path; all three default to `$CLAUDE_PROJECT_DIR`. The two sync commands
+default to `merge` when no mode is named.
 
-Both are marked `disable-model-invocation: true`: **you** invoke them, the agent cannot. These
-commands move git refs and working trees, and the hooks already run them at the only two moments
-where doing so unprompted is appropriate. An agent reaching for them mid-task — to "fix" a warning
-it was just shown, say — is exactly the behaviour to rule out.
+`branch-name` is for the moment a session on `worktree-a3f19c` turns into real work that deserves a
+name. It creates the branch at the current HEAD — so uncommitted work comes along — or switches to it
+when it already exists, never moving it. Called with no argument, the agent infers a short kebab-case
+name from the conversation and states it before running.
+
+It is also **how work outlives a session**: teardown deletes the worktree's branch only when that
+name starts with `worktree-`, so once the tree is on a real name, the commits stay.
+
+All three are marked `disable-model-invocation: true`: **you** invoke them, the agent cannot. These
+commands move git refs and working trees, and the hooks already run the safe half of that at the only
+two moments where doing so unprompted is appropriate. An agent reaching for them mid-task — to "fix"
+a warning it was just shown, say — is exactly the behaviour to rule out. It matters more now than it
+used to: one of these can discard commits.
 
 ## Running the scripts directly
 
 Every script is a normal CLI with `-h`, usable outside Claude Code:
 
 ```bash
-bash hooks/git-sync.sh -C /path/to/repo
+bash hooks/git-sync.sh -C /path/to/repo                     # --mode merge, implied
+bash hooks/git-sync.sh --mode reset -C /path/to/repo        # destructive; exits 1 if dirty
 bash hooks/ensure-submodules.sh -C /path/to/worktree
+bash hooks/branch-name.sh -C /path/to/worktree add-oauth-login
 bash hooks/worktree-cleanup.sh -n -C /path/to/repo/.worktrees/name   # -n: report only
 ```
 
@@ -301,20 +383,25 @@ remove and removes nothing.
 git-autosync/
 ├── hooks/
 │   ├── hooks.json              # SessionStart + WorktreeCreate + WorktreeRemove registration
-│   ├── session-start.sh        # entry point: sync, then submodules, one JSON report
+│   ├── session-start.sh        # entry point: run the sync, one JSON report
 │   ├── on-worktree-create.sh   # entry point: sync, then create the worktree
 │   ├── on-worktree-remove.sh   # entry point: filter the reason, then tear down
-│   ├── git-sync.sh             # worker: fast-forward the default branch
-│   ├── ensure-submodules.sh    # worker: populate + attach submodules
+│   ├── git-sync.sh             # worker: sync the current branch, then chain the submodules
+│   ├── ensure-submodules.sh    # worker: populate + attach + sync submodules
+│   ├── branch-name.sh          # worker: one branch name across superproject + submodules
 │   ├── worktree-cleanup.sh     # worker: remove a worktree and its branch
-│   └── lib/git-common.sh       # shared helpers (repo/remote resolution, reporting)
+│   └── lib/git-common.sh       # shared helpers (repo/remote resolution, modes, reporting)
 ├── skills/
 │   ├── git-sync/SKILL.md
-│   └── submodules-sync/SKILL.md
+│   ├── submodules-sync/SKILL.md
+│   └── branch-name/SKILL.md
 └── tests/
     ├── run.sh                  # every test; no arguments, no network
     ├── lib.sh                  # throwaway-repo scaffolding + assertions
     ├── test-stale-session-branch.sh
+    ├── test-sync-modes.sh
+    ├── test-submodule-sync.sh
+    ├── test-branch-name.sh
     └── test-worktree-lifecycle.sh
 ```
 
@@ -327,11 +414,11 @@ against them, and deletes everything afterwards. Nothing touches your own reposi
 reaches the network.
 
 The three entry points hold the hook plumbing (payload parsing, JSON envelopes, the worktree stdout
-contract, the `reason` filter); the three workers hold the git logic and know nothing about hooks.
+contract, the `reason` filter); the four workers hold the git logic and know nothing about hooks.
 That is why the skills can call the workers directly.
 
-`worktree-cleanup.sh` has no skill on purpose. The other two workers are safe to re-run at any
-moment; this one deletes a working tree.
+`worktree-cleanup.sh` has no skill on purpose. The other workers are safe to re-run at any moment in
+their default mode; this one deletes a working tree unconditionally, with no mode to soften it.
 
 ## What a session actually sees
 
@@ -341,8 +428,8 @@ interactive session in some project, and this is what the plugin does to it — 
 |  | `claude` | `claude --worktree <name>` |
 |---|---|---|
 | **not a git repo** | nothing, silently | ⚠️ the session does not start |
-| **git repo, no submodules** | `main` pulled level with the remote before your first prompt | you work in `.worktrees/<name>` on `worktree-<name>`, cut from the freshly pulled `main`; both are deleted when you quit |
-| **git repo with submodules** | the above, plus every submodule populated and each top-level one on a branch | the above, plus submodules populated *inside* the worktree and put on `worktree-<name>` |
+| **git repo, no submodules** | the branch you are on pulled level with `origin/main` before your first prompt | you work in `.worktrees/<name>` on `worktree-<name>`, cut from the freshly pulled `main`; both are deleted when you quit |
+| **git repo with submodules** | the above, plus every submodule populated, put on a branch, and pulled level with *its* remote | the above, plus submodules populated *inside* the worktree and put on `worktree-<name>` |
 
 One rule cuts across the whole table: **in a repository with no remote, no sync happens and nothing
 is printed** — there is nothing to pull from. Worktrees still work there; creating and removing one
@@ -356,18 +443,25 @@ You run `claude` in the project directory and work in the checkout you already h
 **Not a git repo.** Nothing happens and nothing is printed. The plugin is invisible in projects it
 has no business touching — no warning, no "skipping" line, no context spent.
 
-**A git repo, no submodules.** Before your first prompt, the local `main` (or `master`) is
-fast-forwarded from `origin`. You are never switched between branches: if `main` is checked out and
-clean it is fast-forwarded in place, and if it is checked out nowhere its ref is updated directly,
-touching no files. Everything else is refused out loud — a checkout dirty *on the default branch*, a
-diverged `main`, an unreachable remote each produce one `Warning:` line naming the command to run by
-hand. Uncommitted work elsewhere in the repo does not stop the fetch: it cannot be harmed by one.
+**A git repo, no submodules.** Before your first prompt, **the branch you are on** is brought level
+with `origin/main` — a fast-forward when it has no commits of its own, a merge commit when it does.
+You are never switched between branches; the branch you were on is the branch you stay on. The local
+default branch ref is fast-forwarded separately when you are standing somewhere else, so a worktree
+cut later starts from something current.
 
-Note what is *not* included: if you are on a feature branch, that branch is not rebased, merged or
-moved. Outside a session worktree, only the default branch is ever touched.
+A dirty tree is the one thing that stops it: uncommitted work is reported and nothing is merged into
+it. A diverged default branch you are *not* on, an unreachable remote, and a merge that conflicts
+each produce one `Warning:` line naming the command to run by hand. Uncommitted work never stops the
+fetch itself — it cannot be harmed by one.
+
+> **This is a change from earlier versions.** Up to 0.5.x a feature branch was never touched;
+> only `main`/`master` and the session's own `worktree-*` branch were in scope. It is now merged
+> from `origin/main` like any other. If you want the old behaviour for a particular branch, keep the
+> tree dirty or work outside the plugin — there is no setting for it.
 
 **A git repo with submodules.** The same sync, and then every submodule is populated recursively —
-so no empty directories to discover mid-task.
+so no empty directories to discover mid-task — and each top-level one is brought level with its own
+remote.
 
 Each *top-level* submodule is then put on a real branch, replacing the detached HEAD that
 `git submodule update` leaves behind, so a commit you make inside one has somewhere to land:
@@ -379,9 +473,12 @@ Each *top-level* submodule is then put on a real branch, replacing the detached 
   that was already checked out somewhere else, it is wherever you left it, so nothing moves.
 - **an existing branch of that name is checked out, never moved.** It may carry work from an earlier
   session, and `checkout -B` is never used.
+- **then it is brought level with the submodule's own remote**, at the branch `.gitmodules` says it
+  tracks — so a submodule can sit ahead of the gitlink the superproject records. That is the point:
+  the submodule is as current as everything else you are working with.
 
 Nested submodules are populated but deliberately left detached, and nothing already populated is
-ever rewound.
+ever rewound in merge mode.
 
 ### With a worktree
 

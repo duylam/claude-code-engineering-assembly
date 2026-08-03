@@ -3,19 +3,21 @@
 # ============================================================================
 # session-start.sh - SessionStart hook: one sync pass before the first prompt
 #
-# Runs the two workers in sequence, in this order and never in parallel (they
-# both touch the same repository, and git's index locks are not shareable):
+# Runs git-sync.sh, which reconciles the branch this tree is on with the remote
+# and then chains ensure-submodules.sh for the submodule pass. Calling that
+# second worker here too would only make it fetch every submodule twice.
 #
-#   1. git-sync.sh          fast-forward the default branch from the remote
-#   2. ensure-submodules.sh populate submodules, attach them to the branch
+# No `--mode` is passed, so the sync is always `merge` and always exits 0 - an
+# unattended hook must never reach a destructive path, and must never fail a
+# session. Reset is a thing a human asks for, through the skill.
 #
-# Step 1 is what makes a plain, worktree-less session current. In a worktree
+# This is what makes a plain, worktree-less session current. In a worktree
 # session the WorktreeCreate hook has already synced, and this second pass
 # costs one cheap `git fetch` and stays silent.
 #
-# Their plain-text output is merged into a single hook JSON envelope, so the
-# session opens with one short status line instead of two. Silence when both
-# workers had nothing to say - the normal case.
+# The worker's plain-text output is wrapped in a hook JSON envelope, so the
+# session opens with one short status line. Silence when it had nothing to say
+# - the normal case.
 #
 # ALWAYS exits 0. The workers never fail; this wrapper must not either.
 #
@@ -42,10 +44,7 @@ if [[ -z "$cwd" || ! -d "$cwd" ]]; then
     cwd="$PWD"
 fi
 
-report="$(
-    bash "$SCRIPT_DIR/git-sync.sh" -C "$cwd" || true
-    bash "$SCRIPT_DIR/ensure-submodules.sh" -C "$cwd" || true
-)"
+report="$(bash "$SCRIPT_DIR/git-sync.sh" -C "$cwd" || true)"
 
 if [[ -z "$report" ]]; then
     exit 0

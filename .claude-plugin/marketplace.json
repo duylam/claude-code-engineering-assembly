@@ -44,7 +44,7 @@
     },
     {
       "name": "git-autosync",
-      "description": "Puts a project into a known-good git state before the first prompt of every session: fast-forwards the default branch (main, falling back to master) from the first remote, aligns a session's own worktree branch when it was cut from a stale base, creates Claude Code worktrees off the freshly synced branch, initializes submodules recursively, and attaches each top-level submodule to the superproject's branch instead of a detached HEAD. Built for projects driven through Claude Code Remote Sessions. Does nothing outside a git repo or in a repo with no remote, and never fails a session.",
+      "description": "Puts a project into a known-good git state before the first prompt of every session: brings the branch the session opened on level with the remote's default branch (main, falling back to master), creates Claude Code worktrees off that freshly synced branch, initializes submodules recursively, attaches each top-level submodule to the superproject's branch instead of a detached HEAD, and brings each one level with its own remote. Syncing has two modes - merge, which never destroys anything and is the only one hooks can reach, and reset, available on demand, which discards local commits and refuses outright when any tree is dirty. Built for projects driven through Claude Code Remote Sessions. Does nothing outside a git repo or in a repo with no remote, and never fails a session.",
       "category": "development",
       "source": "./plugins/git-autosync",
       "homepage": "https://github.com/duylam/claude-code-engineering-assembly/tree/main/plugins/git-autosync"

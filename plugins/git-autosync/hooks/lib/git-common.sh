@@ -31,9 +31,37 @@ readonly BRANCH_CANDIDATES=(main master)
 # main checkout permanently dirty. See ensure_worktrees_excluded.
 readonly WORKTREE_DIRS=(".worktrees" ".claude/worktrees")
 
-# The session-branch namespace. A branch outside it belongs to a human and is
-# never moved automatically.
+# The session-branch namespace. Teardown deletes a branch only when it is in
+# here, so a branch outside it survives the session that made it.
 readonly SESSION_BRANCH_PREFIX="worktree-"
+
+# The two ways a sync can reconcile a local branch with its remote. Mutually
+# exclusive, and `merge` is the default everywhere:
+#
+#   merge  bring the remote's commits in, keeping local ones. A fast-forward
+#          when the branch has none of its own, a merge commit when it does.
+#   reset  discard local commits and land exactly on the remote. Refuses to run
+#          at all when anything in the tree - superproject or submodule - is
+#          dirty, because there would be no way to give those changes back.
+#
+# Only a human invoking a skill ever selects a mode; the hooks pass none and so
+# always get `merge`. That is what keeps an unattended SessionStart from ever
+# reaching a destructive path.
+readonly MODES=(merge reset)
+readonly DEFAULT_MODE="merge"
+
+# Echo $1 when it names a mode, or nothing when it does not. The caller decides
+# whether an unrecognized mode is worth failing over - this file never exits.
+parse_mode() {
+    local candidate="$1" mode
+
+    for mode in "${MODES[@]}"; do
+        if [[ "$candidate" == "$mode" ]]; then
+            echo "$mode"
+            return 0
+        fi
+    done
+}
 
 # Collected output. Notes are things that were changed, warnings are things a
 # human has to deal with. Both are rendered together, warnings last.
@@ -214,6 +242,106 @@ branch_in_worktree() {
                 ;;
         esac
     done < <(git -C "$repo" worktree list --porcelain 2>/dev/null)
+}
+
+# Top-level submodules of the tree at $1, one `<name><TAB><path>` line each,
+# straight from the committed .gitmodules. Prints nothing when there is no
+# .gitmodules at all.
+#
+# The NAME matters and is not interchangeable with the path: `submodule.<name>.
+# branch` is the key that says which branch a submodule tracks, and a name is
+# free to differ from the path it checks out to.
+submodule_entries() {
+    local repo="$1" line key value name
+
+    [[ -f "$repo/.gitmodules" ]] || return 0
+
+    while IFS= read -r line; do
+        [[ -n "$line" ]] || continue
+        key="${line%% *}"
+        value="${line#* }"
+        name="${key#submodule.}"
+        name="${name%.path}"
+        [[ -n "$name" && -n "$value" ]] || continue
+        printf '%s\t%s\n' "$name" "$value"
+    done < <(git -C "$repo" config -f "$repo/.gitmodules" \
+        --get-regexp '^submodule\..*\.path$' 2>/dev/null || true)
+}
+
+# The branch submodule $2 (at path $3, under superproject $1 currently on
+# branch $4) should be synced to, or nothing when it cannot be determined.
+#
+# Resolution order, which is git's own:
+#   1. `submodule.<name>.branch` in .gitmodules - the declared tracking branch
+#   2. the literal `.`, which git defines as "whatever the superproject is on"
+#   3. unset - fall back to the submodule's own default branch, so a repo whose
+#      .gitmodules predates any `branch` key still syncs somewhere sensible
+#
+# Whatever comes back is a branch NAME; the caller pairs it with the
+# submodule's own remote.
+submodule_target_branch() {
+    local repo="$1" name="$2" path="$3" super_branch="$4"
+    local sub="$repo/$path" declared remote
+
+    declared="$(git -C "$repo" config -f "$repo/.gitmodules" \
+        --get "submodule.$name.branch" 2>/dev/null || true)"
+
+    if [[ "$declared" == "." ]]; then
+        echo "$super_branch"
+        return 0
+    fi
+
+    if [[ -n "$declared" ]]; then
+        echo "$declared"
+        return 0
+    fi
+
+    remote="$(first_remote "$sub")" || return 0
+    resolve_default_branch "$sub" "remotes/$remote"
+}
+
+# Whether the working tree at $1 has anything uncommitted, staged or untracked.
+#
+# --ignore-submodules=all is required, not a shortcut. A superproject reports
+# ` M <path>` whenever a submodule's HEAD differs from the recorded gitlink,
+# which is the NORMAL state here - `git reset --hard` moves gitlinks without
+# checking submodules out, and a submodule synced to its own remote branch sits
+# ahead of the gitlink by design. Counting that as "dirty" would make every
+# repository with submodules permanently unsyncable. Real work inside a
+# submodule is not missed: assert_clean_recursive asks each one directly.
+tree_is_dirty() {
+    [[ -n "$(git -C "$1" status --porcelain --ignore-submodules=all 2>/dev/null)" ]]
+}
+
+# The reset-mode preflight: succeed only when the tree at $1 AND every
+# populated top-level submodule under it are clean.
+#
+# This has to run to completion BEFORE the first ref moves. Checking each tree
+# just before resetting it would leave a repository half-reset the moment the
+# third submodule turns out dirty - the superproject already rewound, the
+# user's changes in that submodule still there, and no single command to undo
+# either. Reset does everything or nothing, and this is what makes that true.
+#
+# Warns naming the first dirty tree found and returns non-zero. The caller
+# turns that into a hard failure; nothing here exits.
+assert_clean_recursive() {
+    local repo="$1" entry path
+
+    if tree_is_dirty "$repo"; then
+        add_warning "$repo has uncommitted changes; refusing to reset (commit or stash them, or use merge mode)"
+        return 1
+    fi
+
+    while IFS=$'\t' read -r _ path; do
+        [[ -n "$path" ]] || continue
+        [[ -e "$repo/$path/.git" ]] || continue
+        if tree_is_dirty "$repo/$path"; then
+            add_warning "submodule $path has uncommitted changes; refusing to reset anything (commit or stash them, or use merge mode)"
+            return 1
+        fi
+    done < <(submodule_entries "$repo")
+
+    return 0
 }
 
 # Whether $2 is a LINKED worktree of repo $1. The main checkout is listed too,

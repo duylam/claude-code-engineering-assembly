@@ -16,9 +16,8 @@ set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-SANDBOX="${TMPDIR:-/tmp}/git-autosync-test-stale.$$"
+SANDBOX="$(sandbox stale)"
 trap 'rm -rf "$SANDBOX"' EXIT
-rm -rf "$SANDBOX"; mkdir -p "$SANDBOX"
 
 make_origin "$SANDBOX"
 printf '.worktrees/\n' > "$SANDBOX/seed/.gitignore"
@@ -69,7 +68,7 @@ check "exclude not appended twice" "1" \
       "$(grep -cxF '/.claude/worktrees/' "$CLONE/.git/info/exclude")"
 echo
 
-echo "--- a session branch carrying work is reported, never moved ---"
+echo "--- a session branch carrying work gets a merge commit, keeping its work ---"
 git -C "$CLONE" worktree add -q "$CLONE/.claude/worktrees/w2" -b worktree-w2 "origin/main~1"
 W2="$CLONE/.claude/worktrees/w2"
 git -C "$W2" config user.email test@example.invalid
@@ -77,9 +76,16 @@ git -C "$W2" config user.name "test"
 echo mine > "$W2/mine"; git -C "$W2" add -A; git -C "$W2" commit -qm "session work"
 BEFORE="$(git -C "$W2" rev-parse HEAD)"
 out2="$(bash "$HOOKS/git-sync.sh" -C "$W2" 2>&1)"
-check "branch with own commits untouched" "$BEFORE" "$(git -C "$W2" rev-parse HEAD)"
-check "and the warning says why" "yes" \
-      "$([[ "$out2" == *"commit(s) of its own"* ]] && echo yes || echo no)"
+check "the branch moved" "no" \
+      "$([[ "$(git -C "$W2" rev-parse HEAD)" == "$BEFORE" ]] && echo yes || echo no)"
+check "it is a merge commit" "yes" \
+      "$(git -C "$W2" rev-parse -q --verify 'HEAD^2' >/dev/null && echo yes || echo no)"
+check "the remote tip is now an ancestor" "yes" \
+      "$(git -C "$W2" merge-base --is-ancestor "$TIP" HEAD && echo yes || echo no)"
+check "the session's own commit survived" "yes" \
+      "$(git -C "$W2" merge-base --is-ancestor "$BEFORE" HEAD && echo yes || echo no)"
+check "and the note says merged" "yes" \
+      "$([[ "$out2" == *"merged origin/main"* ]] && echo yes || echo no)"
 echo
 
 echo "--- a dirty session worktree is reported, never moved ---"
@@ -93,21 +99,30 @@ check "and the warning says why" "yes" \
       "$([[ "$out3" == *"uncommitted changes"* ]] && echo yes || echo no)"
 echo
 
-echo "--- a branch outside the session namespace is left alone, silently ---"
+echo "--- a branch outside the session namespace is synced too, now ---"
 git -C "$CLONE" worktree add -q "$CLONE/.claude/worktrees/w4" -b my-feature "origin/main~1"
 W4="$CLONE/.claude/worktrees/w4"
-BEFORE="$(git -C "$W4" rev-parse HEAD)"
 out4="$(bash "$HOOKS/git-sync.sh" -C "$W4" 2>&1)"
-check "human branch untouched" "$BEFORE" "$(git -C "$W4" rev-parse HEAD)"
-check "and nothing is printed"  "" "$out4"
+check "human branch fast-forwarded" "$TIP" "$(git -C "$W4" rev-parse HEAD)"
+check "and it said so"              "yes" \
+      "$([[ "$out4" == *"fast-forwarded my-feature"* ]] && echo yes || echo no)"
 echo
 
-echo "--- the main checkout is never fast-forwarded by the alignment step ---"
-git -C "$CLONE" checkout -q -b worktree-decoy "origin/main~1"
-BEFORE="$(git -C "$CLONE" rev-parse HEAD)"
+echo "--- the main checkout is synced too, on whatever branch it is on ---"
+git -C "$CLONE" checkout -q -b main-side "origin/main~1"
 bash "$HOOKS/git-sync.sh" -C "$CLONE" >/dev/null 2>&1
-check "main checkout HEAD unmoved" "$BEFORE" "$(git -C "$CLONE" rev-parse HEAD)"
+check "main checkout fast-forwarded" "$TIP" "$(git -C "$CLONE" rev-parse HEAD)"
 git -C "$CLONE" checkout -q main
+echo
+
+echo "--- a detached HEAD has no branch to sync ---"
+git -C "$CLONE" worktree add -q --detach "$CLONE/.claude/worktrees/w5" "origin/main~1"
+W5="$CLONE/.claude/worktrees/w5"
+BEFORE="$(git -C "$W5" rev-parse HEAD)"
+out5="$(bash "$HOOKS/git-sync.sh" -C "$W5" 2>&1)"
+check "detached HEAD untouched" "$BEFORE" "$(git -C "$W5" rev-parse HEAD)"
+check "and the warning says why" "yes" \
+      "$([[ "$out5" == *"detached HEAD"* ]] && echo yes || echo no)"
 echo
 
 echo "--- rule zero still holds ---"

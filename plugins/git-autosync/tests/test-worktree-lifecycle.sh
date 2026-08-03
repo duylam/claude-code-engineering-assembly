@@ -8,9 +8,8 @@ set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-SANDBOX="${TMPDIR:-/tmp}/git-autosync-test-lifecycle.$$"
+SANDBOX="$(sandbox lifecycle)"
 trap 'rm -rf "$SANDBOX"' EXIT
-rm -rf "$SANDBOX"; mkdir -p "$SANDBOX"
 
 make_origin "$SANDBOX"
 make_clone "$SANDBOX" clone
@@ -38,10 +37,10 @@ git -C "$WT" config user.name "test"
 echo work > "$WT/mine"; git -C "$WT" add -A; git -C "$WT" commit -qm "session work"
 KEEP="$(git -C "$WT" rev-parse HEAD)"
 advance_origin "$SANDBOX" c3
-out="$(bash "$HOOKS/git-sync.sh" -C "$WT" 2>&1)"
-check "committed session work is never rebased away" "$KEEP" "$(git -C "$WT" rev-parse HEAD)"
-check "and the sync says why" "yes" \
-      "$([[ "$out" == *"commit(s) of its own"* ]] && echo yes || echo no)"
+bash "$HOOKS/git-sync.sh" -C "$WT" >/dev/null 2>&1
+check "committed session work is never rebased away" "yes" \
+      "$(git -C "$WT" merge-base --is-ancestor "$KEEP" HEAD && echo yes || echo no)"
+check "and the file is still there" "yes" "$([[ -f "$WT/mine" ]] && echo yes || echo no)"
 echo
 
 echo "--- teardown, dry run ---"

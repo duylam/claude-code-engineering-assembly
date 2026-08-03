@@ -1,49 +1,80 @@
 ---
 name: git-sync
-description: Fast-forward the repository's default branch (main, falling back to master) from its first remote, without switching branches. Manual run of the sync the SessionStart and WorktreeCreate hooks already perform.
-argument-hint: "[path-to-repo]"
+description: Reconcile the branch this tree is on with its remote's default branch (main, falling back to master), then do the same for every submodule against its own remote. Two modes - merge (default, keeps local commits) and reset (discards them). Manual run of the sync the SessionStart and WorktreeCreate hooks already perform.
+argument-hint: "[merge|reset] [path-to-repo]"
 allowed-tools: Bash
 disable-model-invocation: true
 ---
 
 # Git Sync
 
-Fast-forward the repository's default branch (`main`, falling back to `master`) from its first
-remote. Never switches branches, never creates a merge commit, never fails.
+Bring the working tree level with its remote — the branch it is standing on, and then every
+top-level submodule against that submodule's own remote.
 
-Run it:
+## Modes
+
+Two mutually exclusive modes. **`merge` is the default**; use it unless the user asked for `reset`.
+
+| Mode | What it does | Destructive |
+|---|---|---|
+| `merge` | Brings the remote's commits in and keeps local ones — a fast-forward when the branch has none of its own, a merge commit when it does. | No |
+| `reset` | Hard-resets the branch to the remote, discarding local commits. Refuses to touch anything at all when the superproject or **any** submodule is dirty. | **Yes** |
+
+## Run it
+
+Read the first argument: `merge` or `reset` selects the mode, anything else is a path. When no
+mode is named, use `merge`.
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT:-${CLAUDE_SKILL_DIR}/../..}/hooks/git-sync.sh" -C "${CLAUDE_PROJECT_DIR:-$PWD}"
+bash "${CLAUDE_PLUGIN_ROOT:-${CLAUDE_SKILL_DIR}/../..}/hooks/git-sync.sh" \
+    --mode merge -C "${CLAUDE_PROJECT_DIR:-$PWD}"
 ```
 
-When the user named a path in the arguments, pass that instead of `$CLAUDE_PROJECT_DIR`.
+Substitute `reset` for `merge` when the user asked for it, and the user's path for
+`$CLAUDE_PROJECT_DIR` when they named one.
+
+**Before running `reset`, tell the user it will discard local commits on the current branch and in
+every submodule.** They asked for it, so run it — but say what it does first, in one line.
 
 ## Reporting the result
 
 The script prints one line per thing it did, `Warning: ...` for anything a human has to resolve,
-and **nothing at all when the branch was already in sync**. It always exits 0 — an empty output is
-success, not a silent failure.
+and **nothing at all when everything was already in sync**.
 
-Relay what it printed. On empty output, say the default branch is already level with the remote.
+- Exit 0 with empty output → everything was already level with the remote. Say so.
+- Exit 0 with warnings → the sync did what it could; relay the warnings.
+- **Exit non-zero** → only ever happens in `reset` mode, and always means the preflight refused:
+  something was dirty, so **nothing anywhere was changed**. Name the dirty path from the warning
+  and offer to commit or stash it, or to re-run in `merge` mode.
 
 ## What it will not do
 
 Explain these when a warning names one — each is a deliberate refusal, not a bug:
 
-- **Local branch diverged from the remote** → the branch has commits of its own, so a
-  fast-forward is impossible. Merging or rebasing is the user's call; do not do it unprompted.
-- **The branch is checked out in a dirty worktree** → same reasoning, scoped to that worktree.
-- **The session's `worktree-*` branch carries commits of its own** → it is behind the default
-  branch but holds work, so it is reported and never moved. Rebasing or merging it is the user's
-  call. Same for a session worktree with uncommitted changes.
+- **Dirty tree in merge mode** → the branch is behind but has uncommitted changes, so the merge is
+  skipped for that tree. Commit or stash, then re-run.
+- **Merge conflicts** → the merge is **rolled back**, not left half-resolved. The warning names the
+  exact `git -C ... merge ...` command; offer it and let the user drive the resolution. Do not
+  re-run it and start resolving conflicts unprompted.
+- **Detached HEAD** → there is no branch to reconcile. Offer `/git-autosync:branch-name` or a
+  plain checkout.
+- **The default branch itself has diverged** and the session is not standing on it → that ref is
+  only maintained as a base for new worktrees, so it is reported and never merged. Resolving it is
+  the user's call.
 - **No `main` and no `master` on the remote** → the repo uses another default branch name. The
-  plugin only syncs those two; a differently named branch has to be updated by hand.
+  plugin only syncs those two.
+- **A submodule with no `branch` in `.gitmodules` and no `main`/`master`** → nothing to sync it to;
+  the fix is a `branch` key in `.gitmodules`.
 - **No remote, or not a git repository** → silent no-op by design.
 
 ## Notes
 
-- The target is always the **main** repository, even when this runs from inside a worktree: that is
-  where the branch refs live.
-- When the default branch is not checked out anywhere, its ref is fast-forwarded directly
-  (`git fetch <remote> main:main`), so no working tree is touched at all.
+- Submodules are synced to `<their remote>/<branch>` where the branch comes from
+  `submodule.<name>.branch` in `.gitmodules`, the literal `.` meaning "the superproject's branch",
+  or failing both, the submodule's own `main`/`master`. Not to the superproject's recorded gitlink.
+- `reset` puts the pre-reset commit in the reflog. If a user resets by mistake, `git reflog` in the
+  affected tree recovers it — the note the script printed names the short SHA.
+- The default branch's local ref is kept fresh separately, because `on-worktree-create.sh` cuts new
+  worktrees from it. That path is always fast-forward-only and touches no working tree.
+- Hooks never pass a mode, so an unattended `SessionStart` sync is always `merge` and always
+  succeeds. `reset` is only reachable from this skill.
