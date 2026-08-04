@@ -46,8 +46,8 @@ The server is defined as a streamable HTTP MCP server with a Basic auth header:
 ## Setup
 
 1. **Create an Atlassian API token.** Go to
-   <https://id.atlassian.com/manage-profile/security/api-tokens>, click **Create API token**,
-   give it a label, and copy the generated token. Note the email address of the account that
+   <https://id.atlassian.com/manage-profile/security/api-tokens>, click **Create API token with scopes**,
+   give it a label, choose **Rovo MCP** at `Select API token app`, and copy the generated token. Note the email address of the account that
    owns the token.
 
 2. **Base64-encode `email:api_token`.** Encode the email and token joined by a single colon —
