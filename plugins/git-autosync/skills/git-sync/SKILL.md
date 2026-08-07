@@ -1,7 +1,7 @@
 ---
 name: git-sync
 description: Reconcile the branch this tree is on with its remote's default branch (main, falling back to master), then do the same for every submodule against its own remote. Two modes - merge (default, keeps local commits) and reset (discards them). Manual run of the sync the SessionStart and WorktreeCreate hooks already perform.
-argument-hint: "[merge|reset] [path-to-repo]"
+argument-hint: "[merge|reset] [<git-instruction>] [path-to-repo]"
 allowed-tools: Bash
 disable-model-invocation: true
 ---
@@ -24,21 +24,39 @@ Two mutually exclusive modes. **`merge` is the default**; use it unless the user
 
 Arguments: `$ARGUMENTS`
 
-Parse the arguments in order:
-1. If the first token is `merge` or `reset` — that is the mode; consume it.
-2. If no valid mode token was found — default to `merge`.
-3. Any remaining token is treated as the repository path.
+### Parse arguments
+
+1. If the first token is `merge` or `reset` — that is the sync mode; consume it. Default: `merge`.
+2. Scan remaining tokens for a directory path that exists on disk — that is the repository path.
+3. Everything left after extracting mode and path is the **additional instruction** (may be empty).
+
+### Dispatch
+
+**No additional instruction** — run the standard sync:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT:-${CLAUDE_SKILL_DIR}/../..}/hooks/git-sync.sh" \
     --mode merge -C "${CLAUDE_PROJECT_DIR:-$PWD}"
 ```
 
-Replace `merge` with the resolved mode and `${CLAUDE_PROJECT_DIR:-$PWD}` with the user's path when
-one was provided.
+Replace `merge` with the resolved mode and `${CLAUDE_PROJECT_DIR:-$PWD}` with the resolved path.
 
-**Before running `reset`, tell the user it will discard local commits on the current branch and in
-every submodule.** They asked for it, so run it — but say what it does first, in one line.
+**Additional instruction present** — interpret it as a git-related operation and fulfill it using
+the best available tool:
+
+- **Maps to a pre-defined script** — invoke the matching script from `hooks/`:
+  - Submodule-only sync → `ensure-submodules.sh [--mode <mode>] -C <path>`
+  - Branch rename across superproject and submodules → `branch-name.sh`
+- **Direct git operation** (stash, log, cherry-pick, rebase, diff, status, etc.) — run `git`
+  commands directly. Apply to the superproject first; apply to submodules too when the operation is
+  meaningful across all of them (e.g. `git stash` in each, `git log` usually only in the
+  superproject).
+
+Use good judgment about sequencing. For example: stash before syncing, show log after syncing,
+sync first and then cherry-pick on top. When unsure, ask.
+
+**Before any destructive operation** (anything that discards or moves commits), say what it will do
+in one line — then run it.
 
 ## Reporting the result
 

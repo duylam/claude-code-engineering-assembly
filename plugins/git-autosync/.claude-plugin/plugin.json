@@ -1,7 +1,7 @@
 {
   "name": "git-autosync",
   "description": "Puts a project into a known-good git state before the first prompt of every session: brings the branch the session opened on level with the remote's default branch (main, falling back to master), creates Claude Code worktrees off that freshly synced branch, initializes submodules recursively, attaches each top-level submodule to the superproject's branch instead of a detached HEAD, and brings each one level with its own remote at the branch .gitmodules declares. Removes the worktree and its branch again when the session quits, leaving nothing behind on disk. Syncing has two modes - merge, which never destroys anything and is the only one hooks can reach, and reset, available on demand, which discards local commits and refuses outright when any tree is dirty. Also renames a session onto a real branch across the superproject and every submodule at once. Does nothing outside a git repo or in a repo with no remote, and never fails a session.",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "author": {
     "name": "Duy Lam",
     "email": "sej5h73eq@mozmail.com"
