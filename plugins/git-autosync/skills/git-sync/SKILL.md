@@ -22,16 +22,20 @@ Two mutually exclusive modes. **`merge` is the default**; use it unless the user
 
 ## Run it
 
-Read the first argument: `merge` or `reset` selects the mode, anything else is a path. When no
-mode is named, use `merge`.
+Arguments: `$ARGUMENTS`
+
+Parse the arguments in order:
+1. If the first token is `merge` or `reset` — that is the mode; consume it.
+2. If no valid mode token was found — default to `merge`.
+3. Any remaining token is treated as the repository path.
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT:-${CLAUDE_SKILL_DIR}/../..}/hooks/git-sync.sh" \
     --mode merge -C "${CLAUDE_PROJECT_DIR:-$PWD}"
 ```
 
-Substitute `reset` for `merge` when the user asked for it, and the user's path for
-`$CLAUDE_PROJECT_DIR` when they named one.
+Replace `merge` with the resolved mode and `${CLAUDE_PROJECT_DIR:-$PWD}` with the user's path when
+one was provided.
 
 **Before running `reset`, tell the user it will discard local commits on the current branch and in
 every submodule.** They asked for it, so run it — but say what it does first, in one line.
