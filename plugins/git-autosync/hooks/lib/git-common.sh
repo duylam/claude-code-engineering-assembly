@@ -268,47 +268,14 @@ submodule_entries() {
         --get-regexp '^submodule\..*\.path$' 2>/dev/null || true)
 }
 
-# The branch submodule $2 (at path $3, under superproject $1 currently on
-# branch $4) should be synced to, or nothing when it cannot be determined.
-#
-# Resolution order, which is git's own:
-#   1. `submodule.<name>.branch` in .gitmodules - the declared tracking branch
-#   2. the literal `.`, which git defines as "whatever the superproject is on"
-#   3. unset - fall back to the submodule's own default branch, so a repo whose
-#      .gitmodules predates any `branch` key still syncs somewhere sensible
-#
-# Whatever comes back is a branch NAME; the caller pairs it with the
-# submodule's own remote.
-submodule_target_branch() {
-    local repo="$1" name="$2" path="$3" super_branch="$4"
-    local sub="$repo/$path" declared remote
-
-    declared="$(git -C "$repo" config -f "$repo/.gitmodules" \
-        --get "submodule.$name.branch" 2>/dev/null || true)"
-
-    if [[ "$declared" == "." ]]; then
-        echo "$super_branch"
-        return 0
-    fi
-
-    if [[ -n "$declared" ]]; then
-        echo "$declared"
-        return 0
-    fi
-
-    remote="$(first_remote "$sub")" || return 0
-    resolve_default_branch "$sub" "remotes/$remote"
-}
-
 # Whether the working tree at $1 has anything uncommitted, staged or untracked.
 #
 # --ignore-submodules=all is required, not a shortcut. A superproject reports
-# ` M <path>` whenever a submodule's HEAD differs from the recorded gitlink,
-# which is the NORMAL state here - `git reset --hard` moves gitlinks without
-# checking submodules out, and a submodule synced to its own remote branch sits
-# ahead of the gitlink by design. Counting that as "dirty" would make every
-# repository with submodules permanently unsyncable. Real work inside a
-# submodule is not missed: assert_clean_recursive asks each one directly.
+# ` M <path>` whenever a submodule's HEAD differs from the recorded gitlink.
+# After the superproject syncs but before the submodule sync step runs, every
+# submodule will appear modified this way. Counting that as "dirty" would make
+# the reset preflight refuse during this window. Real work inside a submodule is
+# not missed: assert_clean_recursive asks each one directly.
 tree_is_dirty() {
     [[ -n "$(git -C "$1" status --porcelain --ignore-submodules=all 2>/dev/null)" ]]
 }

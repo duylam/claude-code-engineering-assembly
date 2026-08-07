@@ -8,24 +8,24 @@
 #      submodules come along with it
 #   2. it sits on a local branch whose name matches the superproject's branch,
 #      instead of the detached HEAD `git submodule update` leaves behind
-#   3. that branch is reconciled with the submodule's OWN remote, at the branch
-#      `.gitmodules` says the submodule tracks
+#   3. that branch is reconciled with the commit the superproject currently records
+#      for that submodule (the gitlink in superproject's HEAD)
 #
 # Step 3 obeys the same two modes as git-sync.sh:
 #
 #   merge (default)  fast-forward, or a merge commit when the submodule branch
 #                    has commits of its own. Never destroys anything.
-#   reset            discard local commits and land exactly on the remote.
+#   reset            discard local commits and land exactly on the gitlink.
 #                    Refuses to touch ANYTHING when any tree is dirty, and says
 #                    so with a non-zero exit.
 #
 # Only a human passes `--mode reset`; the hooks pass no mode at all, so an
 # unattended run is always `merge` and always exits 0.
 #
-# The branch to sync to is resolved the way git itself defines it: the
-# `submodule.<name>.branch` key from .gitmodules, the literal `.` meaning
-# "whatever the superproject is on", and failing both, the submodule's own
-# default branch. See submodule_target_branch in lib/git-common.sh.
+# The commit to sync to is always the gitlink the superproject currently records
+# for this submodule (`git rev-parse "HEAD:<path>"`), which is set by the
+# superproject's own sync step before this script runs. If the gitlink commit is
+# not yet in the submodule's local object store, it is fetched on demand.
 #
 # A branch that has to be CREATED always starts at the submodule's own HEAD as
 # it stands once populated - the commit genuinely checked out there.
@@ -214,65 +214,67 @@ ensure_branch() {
     return 1
 }
 
-# Reconcile a populated, attached submodule with its own remote.
+# Reconcile a populated, attached submodule with the commit the superproject records.
 #
-# The submodule's remote, not the superproject's: a submodule is a repository,
-# and `.gitmodules` names the branch it tracks over there, not here.
+# The target is always the gitlink in the superproject's current HEAD for this
+# submodule path. The submodule's own remote is only contacted when the gitlink
+# commit is not yet in the local object store.
 sync_submodule() {
-    local name="$1" path="$2" sub="$REPO_ROOT/$path"
-    local remote target target_sha head_sha behind
+    local path="$1" sub="$REPO_ROOT/$path"
+    local gitlink_sha head_sha behind remote
 
-    remote="$(first_remote "$sub")" || return 0
-
-    # Ungated on dirtiness, exactly as in git-sync.sh: a fetch writes only to
-    # the object store and the remote-tracking refs, so refusing it over a
-    # stray untracked file would starve the sync for no safety gained.
-    if ! run_capture git -C "$sub" fetch --quiet "$remote"; then
-        add_warning "could not fetch $remote in $path ($(capture_reason))"
-        return 0
-    fi
-
-    target="$(submodule_target_branch "$REPO_ROOT" "$name" "$path" "$BRANCH")"
-    if [[ -z "$target" ]]; then
-        add_warning "cannot tell which branch $path should track; set 'branch' for submodule $name in .gitmodules"
-        return 0
-    fi
-
-    target_sha="$(git -C "$sub" rev-parse -q --verify "refs/remotes/$remote/$target" || true)"
-    if [[ -z "$target_sha" ]]; then
-        add_warning "$remote has no $target branch in $path; leaving it where it is"
+    gitlink_sha="$(git -C "$REPO_ROOT" rev-parse "HEAD:$path" 2>/dev/null || true)"
+    if [[ -z "$gitlink_sha" ]]; then
+        add_warning "cannot read gitlink for $path from superproject HEAD"
         return 0
     fi
 
     head_sha="$(git -C "$sub" rev-parse HEAD 2>/dev/null || true)"
     [[ -n "$head_sha" ]] || return 0
 
-    if [[ "$MODE" == "reset" ]]; then
-        [[ "$head_sha" != "$target_sha" ]] || return 0
-        if run_capture git -C "$sub" reset --hard "$target_sha"; then
-            add_note "reset $path to $remote/$target (${target_sha:0:7}); the previous tip ${head_sha:0:7} is still reachable from its reflog"
+    # Fetch only when the gitlink commit is not already in the local object store.
+    if ! git -C "$sub" cat-file -e "$gitlink_sha" 2>/dev/null; then
+        remote="$(first_remote "$sub")" || {
+            add_warning "gitlink ${gitlink_sha:0:7} for $path is not in the local store and the submodule has no remote"
+            return 0
+        }
+        if ! run_capture git -C "$sub" fetch --quiet "$remote"; then
+            add_warning "could not fetch $remote in $path to retrieve gitlink ${gitlink_sha:0:7} ($(capture_reason))"
             return 0
         fi
-        add_warning "could not reset $path to $remote/$target ($(capture_reason))"
+        if ! git -C "$sub" cat-file -e "$gitlink_sha" 2>/dev/null; then
+            add_warning "gitlink ${gitlink_sha:0:7} for $path not found after fetching $remote; check the submodule's remote"
+            return 0
+        fi
+    fi
+
+    if [[ "$MODE" == "reset" ]]; then
+        [[ "$head_sha" != "$gitlink_sha" ]] || return 0
+        if run_capture git -C "$sub" reset --hard "$gitlink_sha"; then
+            add_note "reset $path to superproject gitlink (${gitlink_sha:0:7}); the previous tip ${head_sha:0:7} is still reachable from its reflog"
+            return 0
+        fi
+        add_warning "could not reset $path to superproject gitlink ($(capture_reason))"
         fail_fast
     fi
 
-    if git -C "$sub" merge-base --is-ancestor "$target_sha" "$head_sha"; then
+    # Already at or ahead of the gitlink — nothing to do.
+    if git -C "$sub" merge-base --is-ancestor "$gitlink_sha" "$head_sha"; then
         return 0
     fi
 
-    behind="$(git -C "$sub" rev-list --count "$head_sha..$target_sha" 2>/dev/null || echo "?")"
+    behind="$(git -C "$sub" rev-list --count "$head_sha..$gitlink_sha" 2>/dev/null || echo "?")"
 
     if tree_is_dirty "$sub"; then
-        add_warning "$path is $behind commit(s) behind $remote/$target but has uncommitted changes; not merging"
+        add_warning "$path is $behind commit(s) behind the superproject gitlink but has uncommitted changes; not merging"
         return 0
     fi
 
-    if run_capture git -C "$sub" merge --no-edit "$target_sha"; then
-        if git -C "$sub" merge-base --is-ancestor "$head_sha" "$target_sha"; then
-            add_note "fast-forwarded $path to $remote/$target (${target_sha:0:7}); it was $behind commit(s) behind"
+    if run_capture git -C "$sub" merge --no-edit "$gitlink_sha"; then
+        if git -C "$sub" merge-base --is-ancestor "$head_sha" "$gitlink_sha"; then
+            add_note "fast-forwarded $path to superproject gitlink (${gitlink_sha:0:7}); it was $behind commit(s) behind"
         else
-            add_note "merged $remote/$target (${target_sha:0:7}) into $BRANCH in $path"
+            add_note "merged superproject gitlink (${gitlink_sha:0:7}) into $BRANCH in $path"
         fi
         return 0
     fi
@@ -282,11 +284,11 @@ sync_submodule() {
     local reason
     reason="$(capture_reason)"
     if run_capture git -C "$sub" merge --abort; then
-        add_warning "merging $remote/$target into $path conflicts ($reason); the merge was rolled back - resolve it yourself with: git -C '$sub' merge $remote/$target"
+        add_warning "merging gitlink into $path conflicts ($reason); the merge was rolled back - resolve it yourself with: git -C '$sub' merge $gitlink_sha"
         return 0
     fi
 
-    add_warning "could not merge $remote/$target in $path ($reason), and could not roll the attempt back; check 'git -C \"$sub\" status'"
+    add_warning "could not merge gitlink in $path ($reason), and could not roll the attempt back; check 'git -C \"$sub\" status'"
 }
 
 main() {
@@ -308,7 +310,7 @@ main() {
         ensure_populated "$path" || continue
         [[ -n "$BRANCH" ]] || continue
         ensure_branch "$path" || continue
-        sync_submodule "$name" "$path"
+        sync_submodule "$path"
     done < <(submodule_entries "$REPO_ROOT")
 
     finish

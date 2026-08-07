@@ -8,7 +8,7 @@
 #   1. the branch the tree is ON is reconciled with <remote>/<default>, where
 #      <default> is `main` falling back to `master`   -> sync_current_branch
 #   2. every top-level submodule is populated, attached to a branch, and
-#      reconciled with ITS own remote                 -> ensure-submodules.sh
+#      reconciled with the superproject's gitlink     -> ensure-submodules.sh
 #
 # and both obey the same mode, one of:
 #

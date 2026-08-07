@@ -63,15 +63,13 @@ Explain these when a warning names one — each is a deliberate refusal, not a b
   the user's call.
 - **No `main` and no `master` on the remote** → the repo uses another default branch name. The
   plugin only syncs those two.
-- **A submodule with no `branch` in `.gitmodules` and no `main`/`master`** → nothing to sync it to;
-  the fix is a `branch` key in `.gitmodules`.
 - **No remote, or not a git repository** → silent no-op by design.
 
 ## Notes
 
-- Submodules are synced to `<their remote>/<branch>` where the branch comes from
-  `submodule.<name>.branch` in `.gitmodules`, the literal `.` meaning "the superproject's branch",
-  or failing both, the submodule's own `main`/`master`. Not to the superproject's recorded gitlink.
+- Submodules are synced to the commit the superproject currently records for them (the gitlink in
+  `HEAD:<path>`). If that commit is not in the submodule's local object store, the script fetches
+  from the submodule's own remote to retrieve it.
 - `reset` puts the pre-reset commit in the reflog. If a user resets by mistake, `git reflog` in the
   affected tree recovers it — the note the script printed names the short SHA.
 - The default branch's local ref is kept fresh separately, because `on-worktree-create.sh` cuts new
