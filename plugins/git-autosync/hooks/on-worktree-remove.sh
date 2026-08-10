@@ -37,6 +37,15 @@ readonly SCRIPT_NAME="$(basename "$0")"
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly CLEANUP_SCRIPT="$SCRIPT_DIR/worktree-cleanup.sh"
 
+# shellcheck source=lib/git-common.sh
+# Only for autosync_disabled - the plugin's global off switch.
+source "$SCRIPT_DIR/lib/git-common.sh"
+
+# GIT_AUTOSYNC_DISABLE turns every hook into a no-op, teardown included.
+if autosync_disabled; then
+    exit 0
+fi
+
 PAYLOAD=""
 
 # Pull a string field out of the hook payload. jq when available; otherwise

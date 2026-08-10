@@ -76,29 +76,37 @@ if toplevel="$(git -C "$repo" rev-parse --show-toplevel 2>/dev/null)" && [[ -n "
     repo="$toplevel"
 fi
 
-# Keep every worktree directory out of `git status` before anything reads it.
-# git-sync.sh does this too, but it returns early in a repo with no remote -
-# and a remote-less repo still gets worktrees, so it still needs the exclude.
-# Its notes go to stderr here, where they cannot pollute the path contract.
-ensure_worktrees_excluded "$repo"
-render_report >&2
-NOTES=()
-WARNINGS=()
+# GIT_AUTOSYNC_DISABLE is the plugin's global off switch. This hook is the one
+# that cannot go fully silent: its stdout IS the worktree, so a no-op would
+# abort the session. When disabled it therefore skips only the plugin's ACTIONS
+# - the exclude bookkeeping and the sync below - and still creates and prints
+# the worktree, so `claude --worktree` keeps working with the plugin switched
+# off. Everything past this point is guarded on it.
+if ! autosync_disabled; then
+    # Keep every worktree directory out of `git status` before anything reads it.
+    # git-sync.sh does this too, but it returns early in a repo with no remote -
+    # and a remote-less repo still gets worktrees, so it still needs the exclude.
+    # Its notes go to stderr here, where they cannot pollute the path contract.
+    ensure_worktrees_excluded "$repo"
+    render_report >&2
+    NOTES=()
+    WARNINGS=()
 
-# Bring the repository up to date first - the whole point of hooking this
-# event, since resolve_base below cuts the new branch from the LOCAL default
-# branch ref and this is the last moment to make that ref current.
-#
-# Note the reach: the sync runs against the MAIN checkout, so it also merges
-# <remote>/<default> into whatever branch that checkout is standing on, and
-# syncs its submodules. No mode is passed, so this is always the non-destructive
-# `merge` - a dirty main checkout is reported and left alone.
-#
-# Its stdout is redirected to stderr so it cannot pollute the path contract.
-# git-sync.sh already warns for itself, does nothing in a repo with no remote,
-# and always exits 0 in merge mode.
-if [[ -f "$SYNC_SCRIPT" ]]; then
-    bash "$SYNC_SCRIPT" -C "$repo" >&2 || true
+    # Bring the repository up to date first - the whole point of hooking this
+    # event, since resolve_base below cuts the new branch from the LOCAL default
+    # branch ref and this is the last moment to make that ref current.
+    #
+    # Note the reach: the sync runs against the MAIN checkout, so it also merges
+    # <remote>/<default> into whatever branch that checkout is standing on, and
+    # syncs its submodules. No mode is passed, so this is always the
+    # non-destructive `merge` - a dirty main checkout is reported and left alone.
+    #
+    # Its stdout is redirected to stderr so it cannot pollute the path contract.
+    # git-sync.sh already warns for itself, does nothing in a repo with no
+    # remote, and always exits 0 in merge mode.
+    if [[ -f "$SYNC_SCRIPT" ]]; then
+        bash "$SYNC_SCRIPT" -C "$repo" >&2 || true
+    fi
 fi
 
 readonly BRANCH="$SESSION_BRANCH_PREFIX$name"

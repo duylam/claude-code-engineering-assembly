@@ -29,6 +29,15 @@ set -Eeuo pipefail
 
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# shellcheck source=lib/git-common.sh
+# Only for autosync_disabled - the plugin's global off switch.
+source "$SCRIPT_DIR/lib/git-common.sh"
+
+# GIT_AUTOSYNC_DISABLE turns every hook into a no-op. Nothing read, nothing run.
+if autosync_disabled; then
+    exit 0
+fi
+
 payload="$(cat || true)"
 
 # The directory Claude Code started in. In a worktree session this is the

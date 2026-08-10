@@ -36,6 +36,9 @@ state and nothing else — see [sync modes](#sync-modes).
 - `bash` 3.2 or newer — the macOS system `/bin/bash` qualifies
 - `jq` — optional. Without it the hooks fall back to plain-text output and a `sed`-based payload
   parse, so nothing breaks; with it the session-start report arrives as a proper hook JSON envelope.
+- `jq` **and** the `claude` CLI — required only by the plugin-bootstrap hook (`bootstrap-plugins.sh`),
+  and only in a project that declares marketplaces or plugins to install. Missing either, the
+  bootstrap skips itself; the rest of the plugin is unaffected.
 
 ## Installation
 
@@ -52,7 +55,9 @@ No settings, no `.local.md`, nothing to configure.
 |---|---|---|---|
 | `WorktreeCreate` | `on-worktree-create.sh` | 300s | Syncs the main repo, **then creates the worktree** |
 | `SessionStart` (`startup`, `resume`) | `session-start.sh` | 600s | Syncs **the branch the session opened on**, then the submodules |
-| `WorktreeRemove` | `on-worktree-remove.sh` | 120s | Removes the worktree and its branch when the session quits |
+| `SessionStart` (`startup`, `resume`) | `bootstrap-plugins.sh` | 300s | Adds the marketplaces and installs the plugins **this project declares**, at user scope |
+| `WorktreeRemove` | `on-worktree-remove.sh` | 120s | Removes the worktree and its branch when the session quits, and deletes that branch on the remote |
+| `SessionEnd` | `on-session-end.sh` | 300s | Deletes the session's remote `worktree-*` branch — the teardown path for `remote-control` sessions, where `WorktreeRemove` never fires |
 
 No hook ever passes a mode, so **every unattended run is `merge`** and every unattended run exits 0.
 `reset` exists only behind a slash command a human types.
@@ -76,6 +81,21 @@ noise.
 Worktrees are the exception, because they need no remote: one is still created off whatever local
 default branch exists, and still removed again when the session ends. Both are purely local
 operations.
+
+### Turning the plugin off
+
+One switch turns the whole plugin off: set **`GIT_AUTOSYNC_DISABLE`** to any value other than `0`
+and **every hook becomes a no-op** — no sync, no submodule work, no teardown, no remote reaping, no
+plugin bootstrap. It governs the unattended hooks only; a slash command you type by hand still runs,
+because an explicit `/git-autosync:…` is a request, not automation.
+
+The one hook that cannot go completely silent is `WorktreeCreate`: its stdout *is* the worktree, so
+a literal no-op would abort the session. Disabled, it still creates and returns the worktree — it
+just skips the sync it would otherwise run first. So `claude --worktree` keeps working with the
+plugin switched off; the worktree is simply cut from the local branch as-is.
+
+The separate `GIT_AUTOSYNC_KEEP_WORKTREE` escape hatch is unchanged — it keeps a single worktree at
+teardown rather than disabling anything (see [teardown](#worktree-teardown--worktree-cleanupsh)).
 
 ### Sync modes
 
@@ -222,7 +242,12 @@ instead — so without this hook, **every worktree session would leave its direc
 behind forever**. The `git worktree lock` above makes that permanent rather than temporary: Claude
 Code's periodic sweep never releases a lock it did not set itself.
 
-So when the session ends, the worktree and its `worktree-<name>` branch go away.
+So when the session ends, the worktree and its `worktree-<name>` branch go away — locally, and on the
+remote where the branch was pushed. That last part is new (see
+[remote sessions & lifecycle](#remote-sessions--lifecycle)): a `worktree-<name>` branch a session
+pushed to `origin` (on the superproject and on any submodule) is deleted there too, so remote-driven
+sessions stop accumulating dead branches. A branch that was never pushed is a silent no-op. This is
+the plugin's only remote-touching operation, and it is confined to the `worktree-*` namespace.
 
 > **This is the one destructive script in the plugin, and it does not ask.** The worktree is removed
 > whatever state it is in — uncommitted changes, untracked files and unpushed commits all go with
@@ -253,14 +278,54 @@ What it refuses to touch, in every case:
   not one, and an already-removed worktree is silently nothing to do.
 - **the main checkout**, which is listed by `git worktree list` too and is excluded by name.
 - **any branch not named `worktree-*`.** Point Claude Code at a worktree you made yourself and the
-  directory goes but your branch stays.
-- **anything remote.** No push, no `push --delete`, no fetch. Only local disk.
+  directory goes but your branch stays. This holds for the remote deletion too: only a `worktree-*`
+  branch is ever deleted on the remote, and only where it already exists there.
+- **any remote branch outside the `worktree-*` namespace, and any remote ref by fetch or force.** The
+  only remote write is `push <remote> --delete worktree-<name>`, guarded by an `ls-remote` check so a
+  read-only mirror is skipped rather than errored.
 
 Submodules need no special handling in practice. Git gives a submodule populated inside a worktree
 its own directory under `.git/worktrees/<name>/`, and removing the worktree takes that with it, so
 the `worktree-<name>` branch inside each submodule disappears on its own. Where a git version shares
 that directory with the main checkout instead, the branch is deleted only if the superproject
 already records every commit on it — an unmerged one is left alone and named in the report.
+
+### Remote sessions & lifecycle
+
+`claude remote-control --spawn worktree` — web and mobile sessions — does not use this plugin's
+`WorktreeCreate`/`WorktreeRemove` hooks at all. It builds its worktree itself under
+`.claude/worktrees/<name>`, cutting `worktree-<name>` from `<remote>/<default>`, and it removes that
+worktree itself when the session is deleted. **Neither worktree hook ever fires**, so the whole
+teardown path above (`on-worktree-remove.sh` → `worktree-cleanup.sh`) never runs for exactly the
+sessions the plugin was built for. Claude Code's own periodic sweep reclaims the local worktree, but
+nothing was deleting the **remote** `worktree-<name>` branch a session pushed to `origin` — so those
+piled up on the superproject and on every writable submodule, indefinitely.
+
+Two `SessionEnd`/`SessionStart` hooks close that:
+
+- **`on-session-end.sh` (`SessionEnd`)** reaps the remote branch. It derives the branch from the
+  ended tree's own HEAD, and — only for a `worktree-*` name — runs
+  `push <remote> --delete worktree-<name>` on the superproject and every submodule that still has it
+  (`ls-remote --exit-code` first, so a read-only mirror is skipped cleanly). It reaps the remote
+  branch **only**; the local worktree is Claude Code's own to sweep. It skips the `resume` (paused)
+  and `clear` (`/clear`) reasons, which do not mean the session is gone, and acts on the rest. The
+  reap logic is the same helper `worktree-cleanup.sh` uses, so the two teardown paths never drift; a
+  local `claude --worktree` session whose branch was never pushed sees a silent no-op from both.
+- **`bootstrap-plugins.sh` (`SessionStart`)** keeps user-scoped marketplaces added and plugins
+  installed from **this project's** `.claude/settings.json` (and `settings.local.json`). Plugins load
+  before any `SessionStart` hook, and Claude Code has no mid-session plugin loading, so a newly
+  declared plugin takes effect from the **next** session; one already installed at user scope by a
+  prior session is active in this one. It reads the project settings only — never
+  `~/.claude/settings.json` — is idempotent, and prints nothing in a project that declares neither, so
+  an ordinary project pays no cost. Needs `jq` and the `claude` CLI; without them it skips itself.
+
+Both are governed by [`GIT_AUTOSYNC_DISABLE`](#turning-the-plugin-off) like every other hook.
+
+> **`SessionEnd`-on-delete is best-effort.** There is no delete-specific `SessionEnd` reason, and if
+> the daemon kills a session before the hook's `push --delete` completes, that one branch is
+> orphaned — there is no background sweep for remote branches. Reclaim any leftovers by hand with
+> `bash hooks/worktree-cleanup.sh -n -C <path>` (which now also reports the remote branch it would
+> delete), or a plain `git push origin --delete worktree-<name>`.
 
 ### Submodules — `ensure-submodules.sh`
 
@@ -370,7 +435,8 @@ bash hooks/git-sync.sh -C /path/to/repo                     # --mode merge, impl
 bash hooks/git-sync.sh --mode reset -C /path/to/repo        # destructive; exits 1 if dirty
 bash hooks/ensure-submodules.sh -C /path/to/worktree
 bash hooks/branch-name.sh -C /path/to/worktree add-oauth-login
-bash hooks/worktree-cleanup.sh -n -C /path/to/repo/.worktrees/name   # -n: report only
+bash hooks/worktree-cleanup.sh -n -C /path/to/repo/.worktrees/name   # -n: report only (incl. remote reap)
+bash hooks/bootstrap-plugins.sh -n -C /path/to/project              # -n: print the claude commands
 ```
 
 `worktree-cleanup.sh` is the way to reclaim worktrees a previous session left behind — from before
@@ -382,15 +448,17 @@ remove and removes nothing.
 ```
 git-autosync/
 ├── hooks/
-│   ├── hooks.json              # SessionStart + WorktreeCreate + WorktreeRemove registration
+│   ├── hooks.json              # SessionStart (×2) + WorktreeCreate + WorktreeRemove + SessionEnd
 │   ├── session-start.sh        # entry point: run the sync, one JSON report
+│   ├── bootstrap-plugins.sh    # entry point/worker: add marketplaces + install plugins (user scope)
 │   ├── on-worktree-create.sh   # entry point: sync, then create the worktree
 │   ├── on-worktree-remove.sh   # entry point: filter the reason, then tear down
+│   ├── on-session-end.sh       # entry point: reap the session's remote worktree-* branch
 │   ├── git-sync.sh             # worker: sync the current branch, then chain the submodules
 │   ├── ensure-submodules.sh    # worker: populate + attach + sync submodules
 │   ├── branch-name.sh          # worker: one branch name across superproject + submodules
-│   ├── worktree-cleanup.sh     # worker: remove a worktree and its branch
-│   └── lib/git-common.sh       # shared helpers (repo/remote resolution, modes, reporting)
+│   ├── worktree-cleanup.sh     # worker: remove a worktree and its branch, reap it on the remote
+│   └── lib/git-common.sh       # shared helpers (repo/remote resolution, modes, reporting, reap)
 ├── skills/
 │   ├── git-sync/SKILL.md
 │   ├── submodules-sync/SKILL.md
@@ -402,7 +470,11 @@ git-autosync/
     ├── test-sync-modes.sh
     ├── test-submodule-sync.sh
     ├── test-branch-name.sh
-    └── test-worktree-lifecycle.sh
+    ├── test-worktree-lifecycle.sh
+    ├── test-reap-remote-branch.sh
+    ├── test-session-end-reason.sh
+    ├── test-disable-switch.sh
+    └── test-bootstrap-plugins.sh
 ```
 
 ```bash
@@ -413,12 +485,17 @@ Each test builds its own bare "remote" and clones under `$TMPDIR`, runs the real
 against them, and deletes everything afterwards. Nothing touches your own repositories and nothing
 reaches the network.
 
-The three entry points hold the hook plumbing (payload parsing, JSON envelopes, the worktree stdout
-contract, the `reason` filter); the four workers hold the git logic and know nothing about hooks.
-That is why the skills can call the workers directly.
+The entry points hold the hook plumbing (payload parsing, JSON envelopes, the worktree stdout
+contract, the `reason` filter, the `GIT_AUTOSYNC_DISABLE` guard); the workers hold the git logic and
+know nothing about hooks. That is why the skills can call the workers directly. Remote-branch
+reaping lives in one shared helper in `git-common.sh`, so the `WorktreeRemove` teardown and the
+`SessionEnd` hook delete a branch exactly the same way.
 
-`worktree-cleanup.sh` has no skill on purpose. The other workers are safe to re-run at any moment in
-their default mode; this one deletes a working tree unconditionally, with no mode to soften it.
+`worktree-cleanup.sh`, `on-session-end.sh` and `bootstrap-plugins.sh` have **no skill** on purpose.
+The first two delete refs unconditionally (locally, and on the remote) with no mode to soften it; the
+third shells out to `claude plugin` and belongs to the session lifecycle, not to a mid-session
+command. The other workers are safe to re-run at any moment in their default mode, so they keep their
+skills.
 
 ## What a session actually sees
 

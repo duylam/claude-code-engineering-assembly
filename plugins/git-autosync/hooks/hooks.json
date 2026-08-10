@@ -10,6 +10,16 @@
             "timeout": 600
           }
         ]
+      },
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/bootstrap-plugins.sh\"",
+            "timeout": 300
+          }
+        ]
       }
     ],
     "WorktreeCreate": [
@@ -30,6 +40,17 @@
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/on-worktree-remove.sh\"",
             "timeout": 120
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/on-session-end.sh\"",
+            "timeout": 300
           }
         ]
       }

@@ -35,6 +35,16 @@ readonly WORKTREE_DIRS=(".worktrees" ".claude/worktrees")
 # here, so a branch outside it survives the session that made it.
 readonly SESSION_BRANCH_PREFIX="worktree-"
 
+# The plugin's single global off switch. When GIT_AUTOSYNC_DISABLE is set to
+# anything other than an empty string or "0", every HOOK entry point turns
+# itself into a no-op - existing hooks (sync, worktree create/remove) and the
+# new ones (session-end reap, plugin bootstrap) alike. It governs the unattended
+# hook paths only; a human invoking a skill directly still gets the full
+# behaviour, because an explicit `/git-autosync:...` is a request, not automation.
+autosync_disabled() {
+    [[ -n "${GIT_AUTOSYNC_DISABLE:-}" && "${GIT_AUTOSYNC_DISABLE}" != "0" ]]
+}
+
 # The two ways a sync can reconcile a local branch with its remote. Mutually
 # exclusive, and `merge` is the default everywhere:
 #
@@ -308,6 +318,71 @@ assert_clean_recursive() {
         fi
     done < <(submodule_entries "$repo")
 
+    return 0
+}
+
+# Delete a session's `worktree-*` branch on the remote, in the superproject tree
+# at $1 and in every top-level submodule under it that still carries it. Branch
+# $2 is the one to reap.
+#
+# This is the plugin's ONE remote-touching operation, and the reason it exists:
+# `claude remote-control --spawn worktree` cuts and pushes worktree-<name>
+# branches that no local teardown ever reaches (WorktreeRemove does not fire for
+# those sessions), so they pile up on origin and on every writable submodule
+# forever. One shared implementation, called from both the WorktreeRemove
+# teardown and the SessionEnd hook - the two paths must never drift.
+#
+# Guards, in order:
+#   - only ever a `${SESSION_BRANCH_PREFIX}*` branch; anything else returns
+#     untouched, so a human branch pushed by hand is never deleted.
+#   - `ls-remote --exit-code` before every delete, so a tree whose remote does
+#     not have the branch - a read-only submodule mirror, say - is skipped with
+#     no special-casing and no error.
+#
+# The remote is shared across a repo's worktrees, so the delete can be driven
+# from the main checkout; $1 need not be the worktree the branch lived in.
+#
+# Never exits and never fails the caller: a delete that does not go through
+# becomes a warning naming the manual command. Returns 0 always.
+# A third argument of "dry-run" reports what it would delete and deletes
+# nothing - the form the teardown's -n / GIT_AUTOSYNC_KEEP_WORKTREE path uses.
+reap_remote_session_branch() {
+    local tree="$1" branch="$2" dry="${3:-}" path
+
+    [[ -n "$branch" && "$branch" == "$SESSION_BRANCH_PREFIX"* ]] || return 0
+
+    # Each tree is its own repository with its own remote: a submodule pushes to
+    # the submodule's remote, not the superproject's. Resolve it per tree rather
+    # than assume one name spans them all.
+    _reap_one() { # _reap_one <tree> <label>
+        local where="$1" label="$2" remote
+
+        remote="$(first_remote "$where")" || return 0
+
+        git -C "$where" ls-remote --exit-code --heads "$remote" "$branch" \
+            >/dev/null 2>&1 || return 0
+
+        if [[ "$dry" == "dry-run" ]]; then
+            add_note "would delete remote branch $branch on $remote in $label"
+            return 0
+        fi
+
+        if run_capture git -C "$where" push "$remote" --delete "$branch"; then
+            add_note "deleted remote branch $branch on $remote in $label"
+        else
+            add_warning "could not delete remote branch $branch on $remote in $label ($(capture_reason)); run: git -C '$where' push '$remote' --delete '$branch'"
+        fi
+    }
+
+    _reap_one "$tree" "the superproject"
+
+    while IFS=$'\t' read -r _ path; do
+        [[ -n "$path" ]] || continue
+        [[ -e "$tree/$path/.git" ]] || continue
+        _reap_one "$tree/$path" "submodule $path"
+    done < <(submodule_entries "$tree")
+
+    unset -f _reap_one
     return 0
 }
 
