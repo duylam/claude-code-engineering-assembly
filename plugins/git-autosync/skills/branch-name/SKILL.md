@@ -1,6 +1,6 @@
 ---
 name: branch-name
-description: Put the superproject and every top-level submodule on one named branch, creating it at the current HEAD or switching to it when it already exists. Infers a short name from the conversation when none is given. Use to give a session's `worktree-*` branch a real name before committing.
+description: Put the superproject and every top-level submodule on one named branch, creating it at the current HEAD or switching to it when it already exists. Infers a short name from the conversation when none is given. Use to give a session's `worktree-*` branch a meaningful name.
 argument-hint: "[branch-name]"
 allowed-tools: Bash
 disable-model-invocation: true
@@ -65,11 +65,9 @@ all when everything was already on that name**.
 
 ## Notes
 
-- **This is how work outlives the session.** Session teardown (`worktree-cleanup.sh`) deletes the
-  branch the worktree is on only when that name starts with `worktree-`. Once this skill has moved
-  the tree onto a real name, teardown reports `left branch <name> alone` and the commits survive.
-  Naming a branch is therefore also the way to keep it.
+- **Nothing auto-deletes branches**, so work always outlives the session whatever the branch is
+  named. This skill is about giving that work a **meaningful name** — the auto-generated
+  `worktree-a3f19c` says nothing about what was done; `add-oauth-login` does.
 - The old `worktree-*` branch stays behind, pointing at the commit the new branch was cut from.
-  Teardown no longer sees it (it looks only at the branch the worktree is *currently* on), so it
-  is not deleted either. Mention it if the user cares about tidiness: `git branch -D worktree-...`.
+  Mention it if the user cares about tidiness: `git branch -D worktree-...`.
 

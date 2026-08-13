@@ -10,37 +10,29 @@
 # ============================================================================
 
 # The names treated as a repository's default branch, in priority order. Kept
-# here rather than in one worker so the sync and the worktree hook can never
-# disagree about which branch "the default branch" means - a disagreement
-# would silently cut new branches from the wrong place.
+# here rather than in one worker so the sync can never disagree with itself
+# about which branch "the default branch" means.
 readonly BRANCH_CANDIDATES=(main master)
 
 # Every directory a Claude Code worktree can land in, relative to the repo root.
-# BOTH are needed, because the plugin is not always the thing that made the
-# worktree:
+# BOTH are needed, because these are two different worktree roots a session can
+# open in:
 #
-#   .worktrees/         where on-worktree-create.sh puts one when the
-#                       WorktreeCreate hook runs and the plugin is in charge
-#   .claude/worktrees/  Claude Code's own default, used whenever it is not -
-#                       most importantly by `claude remote-control --spawn
-#                       worktree`, which builds its worktree itself and never
-#                       fires WorktreeCreate at all
+#   .worktrees/         the root `claude --worktree` uses
+#   .claude/worktrees/  Claude Code's own default, used most importantly by
+#                       `claude remote-control --spawn worktree`, which builds
+#                       its worktree itself under this path
 #
-# A repo driven by remote sessions therefore accumulates worktrees in a
-# directory this plugin never chose, and excluding only its own would leave the
-# main checkout permanently dirty. See ensure_worktrees_excluded.
+# A repo driven by remote sessions therefore accumulates worktrees under
+# .claude/worktrees/, and excluding only the other would leave the main checkout
+# permanently dirty. See ensure_worktrees_excluded.
 readonly WORKTREE_DIRS=(".worktrees" ".claude/worktrees")
 
-# The session-branch namespace. Teardown deletes a branch only when it is in
-# here, so a branch outside it survives the session that made it.
-readonly SESSION_BRANCH_PREFIX="worktree-"
-
 # The plugin's single global off switch. When GIT_AUTOSYNC_DISABLE is set to
-# anything other than an empty string or "0", every HOOK entry point turns
-# itself into a no-op - existing hooks (sync, worktree create/remove) and the
-# new ones (session-end reap, plugin bootstrap) alike. It governs the unattended
-# hook paths only; a human invoking a skill directly still gets the full
-# behaviour, because an explicit `/git-autosync:...` is a request, not automation.
+# anything other than an empty string or "0", the SessionStart hook turns itself
+# into a no-op. It governs the unattended hook path only; a human invoking a
+# skill directly still gets the full behaviour, because an explicit
+# `/git-autosync:...` is a request, not automation.
 autosync_disabled() {
     [[ -n "${GIT_AUTOSYNC_DISABLE:-}" && "${GIT_AUTOSYNC_DISABLE}" != "0" ]]
 }
@@ -231,29 +223,6 @@ worktree_holding_branch() {
     done < <(git -C "$repo" worktree list --porcelain 2>/dev/null)
 }
 
-# The reverse lookup: the branch checked out in worktree $2 of repo $1, or
-# nothing when that worktree is detached or unknown. Not the same thing as
-# `symbolic-ref` run inside the worktree - this reads the repository's own
-# registry, so it still answers for a worktree whose directory has already been
-# deleted from disk, which is exactly the case teardown has to handle.
-branch_in_worktree() {
-    local repo="$1" target="$2" line path=""
-
-    while IFS= read -r line; do
-        case "$line" in
-            "worktree "*)
-                path="${line#worktree }"
-                ;;
-            "branch refs/heads/"*)
-                if [[ "$path" == "$target" ]]; then
-                    echo "${line#branch refs/heads/}"
-                    return 0
-                fi
-                ;;
-        esac
-    done < <(git -C "$repo" worktree list --porcelain 2>/dev/null)
-}
-
 # Top-level submodules of the tree at $1, one `<name><TAB><path>` line each,
 # straight from the committed .gitmodules. Prints nothing when there is no
 # .gitmodules at all.
@@ -319,85 +288,4 @@ assert_clean_recursive() {
     done < <(submodule_entries "$repo")
 
     return 0
-}
-
-# Delete a session's `worktree-*` branch on the remote, in the superproject tree
-# at $1 and in every top-level submodule under it that still carries it. Branch
-# $2 is the one to reap.
-#
-# This is the plugin's ONE remote-touching operation, and the reason it exists:
-# `claude remote-control --spawn worktree` cuts and pushes worktree-<name>
-# branches that no local teardown ever reaches (WorktreeRemove does not fire for
-# those sessions), so they pile up on origin and on every writable submodule
-# forever. One shared implementation, called from both the WorktreeRemove
-# teardown and the SessionEnd hook - the two paths must never drift.
-#
-# Guards, in order:
-#   - only ever a `${SESSION_BRANCH_PREFIX}*` branch; anything else returns
-#     untouched, so a human branch pushed by hand is never deleted.
-#   - `ls-remote --exit-code` before every delete, so a tree whose remote does
-#     not have the branch - a read-only submodule mirror, say - is skipped with
-#     no special-casing and no error.
-#
-# The remote is shared across a repo's worktrees, so the delete can be driven
-# from the main checkout; $1 need not be the worktree the branch lived in.
-#
-# Never exits and never fails the caller: a delete that does not go through
-# becomes a warning naming the manual command. Returns 0 always.
-# A third argument of "dry-run" reports what it would delete and deletes
-# nothing - the form the teardown's -n / GIT_AUTOSYNC_KEEP_WORKTREE path uses.
-reap_remote_session_branch() {
-    local tree="$1" branch="$2" dry="${3:-}" path
-
-    [[ -n "$branch" && "$branch" == "$SESSION_BRANCH_PREFIX"* ]] || return 0
-
-    # Each tree is its own repository with its own remote: a submodule pushes to
-    # the submodule's remote, not the superproject's. Resolve it per tree rather
-    # than assume one name spans them all.
-    _reap_one() { # _reap_one <tree> <label>
-        local where="$1" label="$2" remote
-
-        remote="$(first_remote "$where")" || return 0
-
-        git -C "$where" ls-remote --exit-code --heads "$remote" "$branch" \
-            >/dev/null 2>&1 || return 0
-
-        if [[ "$dry" == "dry-run" ]]; then
-            add_note "would delete remote branch $branch on $remote in $label"
-            return 0
-        fi
-
-        if run_capture git -C "$where" push "$remote" --delete "$branch"; then
-            add_note "deleted remote branch $branch on $remote in $label"
-        else
-            add_warning "could not delete remote branch $branch on $remote in $label ($(capture_reason)); run: git -C '$where' push '$remote' --delete '$branch'"
-        fi
-    }
-
-    _reap_one "$tree" "the superproject"
-
-    while IFS=$'\t' read -r _ path; do
-        [[ -n "$path" ]] || continue
-        [[ -e "$tree/$path/.git" ]] || continue
-        _reap_one "$tree/$path" "submodule $path"
-    done < <(submodule_entries "$tree")
-
-    unset -f _reap_one
-    return 0
-}
-
-# Whether $2 is a LINKED worktree of repo $1. The main checkout is listed too,
-# so callers that must not touch it have to exclude it themselves. Registration
-# is the only trustworthy proof that a directory is a worktree git owns; a path
-# that merely looks like one is not.
-worktree_is_registered() {
-    local repo="$1" target="$2" line
-
-    while IFS= read -r line; do
-        if [[ "$line" == "worktree $target" ]]; then
-            return 0
-        fi
-    done < <(git -C "$repo" worktree list --porcelain 2>/dev/null)
-
-    return 1
 }
