@@ -22,9 +22,13 @@
 #   - a branch named `worktree-*`, the prefix on-worktree-create.sh uses
 #   - a `worktree-*` branch inside a submodule, and only when the superproject
 #     already records every commit on it
+#   - a `worktree-*` branch on the REMOTE (superproject and submodules), deleted
+#     via reap_remote_session_branch - the plugin's one remote-touching step,
+#     added to clean up the branches remote-control sessions push. A branch that
+#     was never pushed is a silent no-op (see the helper's ls-remote guard).
 #
-# It never touches the main checkout, any other branch, or anything remote:
-# no push, no `push --delete`, no fetch.
+# It never touches the main checkout or any branch outside the `worktree-*`
+# namespace, and its only remote action is deleting that namespace's branches.
 #
 #   not a git repo                        -> silent, exit 0
 #   not a registered worktree             -> silent, exit 0 (already gone)
@@ -295,6 +299,7 @@ report_plan() {
         path="${entry%%$'\t'*}"
         add_note "would drop submodule $path with it"
     done
+    reap_remote_session_branch "$MAIN_REPO" "$BRANCH" dry-run
 }
 
 main() {
@@ -340,6 +345,14 @@ main() {
     remove_worktree
     cleanup_submodule_branches
     remove_branch
+
+    # The remote counterpart to remove_branch. A `worktree-*` branch that a
+    # remote-control session pushed to origin (superproject and submodules) is
+    # deleted there too - the one place this plugin touches a remote, and the
+    # whole reason for it: nothing else ever reaps those. A branch never pushed
+    # is a silent ls-remote no-op. Shared with the SessionEnd hook, so the two
+    # teardown paths agree exactly.
+    reap_remote_session_branch "$MAIN_REPO" "$BRANCH"
 
     finish
 }
