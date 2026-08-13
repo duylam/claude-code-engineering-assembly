@@ -11,9 +11,10 @@
 # unattended hook must never reach a destructive path, and must never fail a
 # session. Reset is a thing a human asks for, through the skill.
 #
-# This is what makes a plain, worktree-less session current. In a worktree
-# session the WorktreeCreate hook has already synced, and this second pass
-# costs one cheap `git fetch` and stays silent.
+# This is what makes a session current on start, including a
+# `claude remote-control --spawn worktree` session whose worktree was cut from a
+# possibly-stale remote-tracking ref. When there is nothing to do it costs one
+# cheap `git fetch` and stays silent.
 #
 # The worker's plain-text output is wrapped in a hook JSON envelope, so the
 # session opens with one short status line. Silence when it had nothing to say

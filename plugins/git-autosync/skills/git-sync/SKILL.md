@@ -1,6 +1,6 @@
 ---
 name: git-sync
-description: Reconcile the branch this tree is on with its remote's default branch (main, falling back to master), then do the same for every submodule against its own remote. Two modes - merge (default, keeps local commits) and reset (discards them). Manual run of the sync the SessionStart and WorktreeCreate hooks already perform.
+description: Reconcile the branch this tree is on with its remote's default branch (main, falling back to master), then do the same for every submodule against its own remote. Two modes - merge (default, keeps local commits) and reset (discards them). Manual run of the sync the SessionStart hook already performs.
 argument-hint: "[merge|reset] [<git-instruction>] [path-to-repo]"
 allowed-tools: Bash
 disable-model-invocation: true
@@ -81,8 +81,8 @@ Explain these when a warning names one — each is a deliberate refusal, not a b
 - **Detached HEAD** → there is no branch to reconcile. Offer `/git-autosync:branch-name` or a
   plain checkout.
 - **The default branch itself has diverged** and the session is not standing on it → that ref is
-  only maintained as a base for new worktrees, so it is reported and never merged. Resolving it is
-  the user's call.
+  only kept fresh as a base for a later sync or a branch cut from it, so it is reported and never
+  merged. Resolving it is the user's call.
 - **No `main` and no `master` on the remote** → the repo uses another default branch name. The
   plugin only syncs those two.
 - **No remote, or not a git repository** → silent no-op by design.
@@ -94,7 +94,7 @@ Explain these when a warning names one — each is a deliberate refusal, not a b
   from the submodule's own remote to retrieve it.
 - `reset` puts the pre-reset commit in the reflog. If a user resets by mistake, `git reflog` in the
   affected tree recovers it — the note the script printed names the short SHA.
-- The default branch's local ref is kept fresh separately, because `on-worktree-create.sh` cuts new
-  worktrees from it. That path is always fast-forward-only and touches no working tree.
-- Hooks never pass a mode, so an unattended `SessionStart` sync is always `merge` and always
+- The default branch's local ref is kept fresh separately, so a later sync — or a branch cut from it
+  — starts from an up-to-date base. That path is always fast-forward-only and touches no working tree.
+- The hook never passes a mode, so an unattended `SessionStart` sync is always `merge` and always
   succeeds. `reset` is only reachable from this skill.

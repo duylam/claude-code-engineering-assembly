@@ -39,10 +39,10 @@
 # tree are. See the note in main() for why that distinction is load-bearing.
 #
 # The DEFAULT BRANCH's ref is maintained separately from all of the above, and
-# only when the tree is not standing on it: `on-worktree-create.sh` cuts new
-# worktrees from that ref, so it has to stay fresh even in a session that never
-# checks it out. That path is still strictly fast-forward and touches no
-# working tree - see sync_ref_only.
+# only when the tree is not standing on it: keeping that ref fresh lets a later
+# `git-sync` (or a new branch cut from it) start from an up-to-date base even in
+# a session that never checks it out. That path is still strictly fast-forward
+# and touches no working tree - see sync_ref_only.
 #
 # Output: plain text on stdout, empty when there was nothing to do.
 # Dependencies: git.
@@ -177,8 +177,8 @@ behind_count() {
 # most often: `claude remote-control --spawn worktree` builds its worktree
 # itself, under `.claude/worktrees/<name>`, and cuts `worktree-<name>` straight
 # from `<remote>/<default>` - a remote-tracking ref only as fresh as the last
-# fetch. WorktreeCreate never fires, so nothing the plugin does there applies,
-# and SessionStart is the last moment to repair it.
+# fetch. That worktree is built before any session hook runs, so SessionStart
+# is the first and only moment the plugin gets to repair it.
 #
 # In merge mode nothing is ever lost: a branch with no commits of its own
 # fast-forwards, one with commits gets a merge commit, and a conflicted merge
@@ -335,13 +335,13 @@ main() {
 
     # The tree the session is actually working in comes first, whatever branch
     # it is on. This is the step the session can feel; everything below it is
-    # housekeeping for the NEXT worktree.
+    # housekeeping for the default branch's ref.
     sync_current_branch "$branch" "$remote_sha"
 
     # Keep the default branch's ref fresh even in a session that never checks
-    # it out - `on-worktree-create.sh` cuts new worktrees from it. Skipped when
-    # the pass above already handled that very branch, since a branch can only
-    # be checked out in one tree.
+    # it out, so a later sync or a branch cut from it starts current. Skipped
+    # when the pass above already handled that very branch, since a branch can
+    # only be checked out in one tree.
     if [[ "$CURRENT_BRANCH" != "$branch" ]]; then
         local_sha="$(git -C "$MAIN_REPO" rev-parse -q --verify "refs/heads/$branch" || true)"
 
