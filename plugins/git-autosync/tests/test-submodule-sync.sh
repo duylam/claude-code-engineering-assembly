@@ -1,10 +1,7 @@
 #!/bin/bash
-# Submodules are synced against the superproject's gitlink, not their own remote tip.
-# Reset's preflight covers them before anything moves.
-#
-# The ordering assertion is the important one. A reset that rewound the
-# superproject and only then noticed a dirty submodule would leave a repository
-# nobody can put back with one command.
+# Submodules are synced against the superproject's gitlink, not their own remote
+# tip: a submodule fast-forwards only when the superproject records a new gitlink
+# for it, and a submodule already at or ahead of the gitlink is left alone.
 set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -37,12 +34,12 @@ VENDORED_GITLINK="$(git -C "$SANDBOX/seed" rev-parse "HEAD:vendored")"
 advance_sub_origin "$SANDBOX" tracked s2
 advance_sub_origin "$SANDBOX" vendored v2
 
-echo "--- merge mode: populate, attach, and contain the superproject gitlink ---"
+echo "--- populate, attach, and contain the superproject gitlink ---"
 out="$(bash "$HOOKS/ensure-submodules.sh" -C "$CLONE" 2>&1)"
 check "tracked is populated" "yes" "$([[ -e "$CLONE/tracked/.git" ]] && echo yes || echo no)"
 check "tracked is on a branch, not detached" "main" \
       "$(git -C "$CLONE/tracked" symbolic-ref --short -q HEAD)"
-# In merge mode the submodule must CONTAIN the gitlink commit (it may sit ahead of it).
+# The submodule must CONTAIN the gitlink commit (it may sit ahead of it).
 check "tracked contains the superproject gitlink" "yes" \
       "$(git -C "$CLONE/tracked" merge-base --is-ancestor "$TRACKED_GITLINK" HEAD && echo yes || echo no)"
 check "vendored contains the superproject gitlink" "yes" \
@@ -78,37 +75,6 @@ check "and it said fast-forwarded" "yes" \
       "$([[ "$out" == *"fast-forwarded tracked"* ]] && echo yes || echo no)"
 check "vendored was left alone" "$VENDORED_AFTER_FIRST" \
       "$(git -C "$CLONE/vendored" rev-parse HEAD)"
-echo
-
-echo "--- reset mode refuses over a dirty submodule, before anything moves ---"
-advance_origin "$SANDBOX" c2
-SUPER_TIP="$(git -C "$SANDBOX/seed" rev-parse HEAD)"
-SUPER_BEFORE="$(git -C "$CLONE" rev-parse HEAD)"
-TRACKED_BEFORE="$(git -C "$CLONE/tracked" rev-parse HEAD)"
-echo uncommitted > "$CLONE/tracked/scratch"
-
-out="$(bash "$HOOKS/git-sync.sh" --mode reset -C "$CLONE" 2>&1)"; status=$?
-check "exit is non-zero"              "yes"             "$([[ "$status" -ne 0 ]] && echo yes || echo no)"
-check "the superproject did NOT move" "$SUPER_BEFORE"   "$(git -C "$CLONE" rev-parse HEAD)"
-check "the submodule did NOT move"    "$TRACKED_BEFORE" "$(git -C "$CLONE/tracked" rev-parse HEAD)"
-check "the uncommitted file survived" "uncommitted"     "$(cat "$CLONE/tracked/scratch")"
-check "and the warning names the submodule" "yes" \
-      "$([[ "$out" == *"submodule tracked has uncommitted changes"* ]] && echo yes || echo no)"
-echo
-
-echo "--- reset mode discards commits ahead of the gitlink ---"
-rm -f "$CLONE/tracked/scratch"
-# Add a committed-but-not-gitlinked local change to the submodule (ahead of NEW_TRACKED_GITLINK).
-echo local > "$CLONE/tracked/local-file"
-git -C "$CLONE/tracked" add -A
-git -C "$CLONE/tracked" commit -qm "local work in submodule"
-# Reset: submodule should land exactly on the gitlink, losing the local commit.
-# SUPER_TIP has no new gitlink for tracked, so its gitlink is still NEW_TRACKED_GITLINK.
-bash "$HOOKS/git-sync.sh" --mode reset -C "$CLONE" >/dev/null 2>&1; status=$?
-check "exit is 0"                                    "0"                    "$status"
-check "superproject landed on its remote"            "$SUPER_TIP"           "$(git -C "$CLONE" rev-parse HEAD)"
-check "submodule reset to gitlink, not local commit" "$NEW_TRACKED_GITLINK" \
-      "$(git -C "$CLONE/tracked" rev-parse HEAD)"
 echo
 
 report

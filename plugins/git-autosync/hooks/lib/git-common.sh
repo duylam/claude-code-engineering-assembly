@@ -30,39 +30,9 @@ readonly WORKTREE_DIRS=(".worktrees" ".claude/worktrees")
 
 # The plugin's single global off switch. When GIT_AUTOSYNC_DISABLE is set to
 # anything other than an empty string or "0", the SessionStart hook turns itself
-# into a no-op. It governs the unattended hook path only; a human invoking a
-# skill directly still gets the full behaviour, because an explicit
-# `/git-autosync:...` is a request, not automation.
+# into a no-op.
 autosync_disabled() {
     [[ -n "${GIT_AUTOSYNC_DISABLE:-}" && "${GIT_AUTOSYNC_DISABLE}" != "0" ]]
-}
-
-# The two ways a sync can reconcile a local branch with its remote. Mutually
-# exclusive, and `merge` is the default everywhere:
-#
-#   merge  bring the remote's commits in, keeping local ones. A fast-forward
-#          when the branch has none of its own, a merge commit when it does.
-#   reset  discard local commits and land exactly on the remote. Refuses to run
-#          at all when anything in the tree - superproject or submodule - is
-#          dirty, because there would be no way to give those changes back.
-#
-# Only a human invoking a skill ever selects a mode; the hooks pass none and so
-# always get `merge`. That is what keeps an unattended SessionStart from ever
-# reaching a destructive path.
-readonly MODES=(merge reset)
-readonly DEFAULT_MODE="merge"
-
-# Echo $1 when it names a mode, or nothing when it does not. The caller decides
-# whether an unrecognized mode is worth failing over - this file never exits.
-parse_mode() {
-    local candidate="$1" mode
-
-    for mode in "${MODES[@]}"; do
-        if [[ "$candidate" == "$mode" ]]; then
-            echo "$mode"
-            return 0
-        fi
-    done
 }
 
 # Collected output. Notes are things that were changed, warnings are things a
@@ -253,39 +223,9 @@ submodule_entries() {
 # ` M <path>` whenever a submodule's HEAD differs from the recorded gitlink.
 # After the superproject syncs but before the submodule sync step runs, every
 # submodule will appear modified this way. Counting that as "dirty" would make
-# the reset preflight refuse during this window. Real work inside a submodule is
-# not missed: assert_clean_recursive asks each one directly.
+# the merge dirty-checks skip a tree that has no real local work. Real work
+# inside a submodule is not missed: each submodule's own tree is checked
+# directly by the submodule sync step.
 tree_is_dirty() {
     [[ -n "$(git -C "$1" status --porcelain --ignore-submodules=all 2>/dev/null)" ]]
-}
-
-# The reset-mode preflight: succeed only when the tree at $1 AND every
-# populated top-level submodule under it are clean.
-#
-# This has to run to completion BEFORE the first ref moves. Checking each tree
-# just before resetting it would leave a repository half-reset the moment the
-# third submodule turns out dirty - the superproject already rewound, the
-# user's changes in that submodule still there, and no single command to undo
-# either. Reset does everything or nothing, and this is what makes that true.
-#
-# Warns naming the first dirty tree found and returns non-zero. The caller
-# turns that into a hard failure; nothing here exits.
-assert_clean_recursive() {
-    local repo="$1" entry path
-
-    if tree_is_dirty "$repo"; then
-        add_warning "$repo has uncommitted changes; refusing to reset (commit or stash them, or use merge mode)"
-        return 1
-    fi
-
-    while IFS=$'\t' read -r _ path; do
-        [[ -n "$path" ]] || continue
-        [[ -e "$repo/$path/.git" ]] || continue
-        if tree_is_dirty "$repo/$path"; then
-            add_warning "submodule $path has uncommitted changes; refusing to reset anything (commit or stash them, or use merge mode)"
-            return 1
-        fi
-    done < <(submodule_entries "$repo")
-
-    return 0
 }
