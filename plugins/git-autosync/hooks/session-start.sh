@@ -7,9 +7,8 @@
 # and then chains ensure-submodules.sh for the submodule pass. Calling that
 # second worker here too would only make it fetch every submodule twice.
 #
-# No `--mode` is passed, so the sync is always `merge` and always exits 0 - an
-# unattended hook must never reach a destructive path, and must never fail a
-# session. Reset is a thing a human asks for, through the skill.
+# The sync is always a merge and always exits 0 - the hook must never reach a
+# destructive path, and must never fail a session.
 #
 # This is what makes a session current on start, including a
 # `claude remote-control --spawn worktree` session whose worktree was cut from a
