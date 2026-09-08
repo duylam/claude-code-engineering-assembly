@@ -49,6 +49,7 @@ No settings, no `.local.md`, nothing to configure.
 | Event | Script | Timeout | What it does |
 |---|---|---|---|
 | `SessionStart` (`startup`, `resume`) | `session-start.sh` | 600s | Syncs **the branch the session opened on**, then the submodules |
+| `PreBash` (any `git push`) | `protect-branches.sh` | 30s | Blocks pushes that would update `main` or `master` on the remote |
 
 The hook never passes a mode, so **every unattended run is `merge`** and every unattended run exits 0.
 `reset` exists only behind a slash command a human types.
@@ -70,10 +71,44 @@ noise.
 
 ### Turning the plugin off
 
-One switch turns the plugin off: set **`GIT_AUTOSYNC_DISABLE`** to any value other than `0` and
-**the hook becomes a no-op** — no sync, no submodule work. It governs the unattended hook only; a
-slash command you type by hand still runs, because an explicit `/git-autosync:…` is a request, not
-automation.
+One switch turns **all plugin hooks** off: set **`GIT_AUTOSYNC_DISABLE`** to any value other than
+`0` and **both hooks become no-ops** — no sync, no branch protection. It governs the unattended
+hooks only; a slash command you type by hand still runs, because an explicit `/git-autosync:…` is a
+request, not automation.
+
+### Branch protection
+
+The `PreBash` hook intercepts every `git push` command before Claude Code executes it and blocks
+any that would update `main` or `master` on the remote.
+
+**Blocked**
+
+| Push form | Reason |
+|---|---|
+| `git push origin main` | standalone refspec — source and destination are the same |
+| `git push origin HEAD:main` | `main` is the explicit destination of the refspec |
+| `git push origin feature:main` | `main` is the explicit destination of the refspec |
+| `git push origin :main` | deletion form of a refspec — still an update to the remote |
+| `git push origin --delete main` | deletion |
+| `git push --force origin master` | standalone refspec |
+| `git push origin refs/heads/main` | full-ref standalone refspec |
+| `git push --all` (when `main` exists locally) | pushes every local branch, including the protected one |
+| `git push` or `git push origin` (on `main`) | no explicit refspec — git infers it from the current branch |
+| `git push -u origin HEAD` (on `main`) | `HEAD` resolves to the protected branch |
+
+**Allowed**
+
+| Push form | Reason |
+|---|---|
+| `git push origin feature` | non-protected destination |
+| `git push origin main:feature` | `main` is the *source*; `feature` is the remote destination |
+| `git push origin feature-main` | substring match only — not a standalone branch name |
+| `git push` or `git push origin` (not on `main`/`master`) | current branch is not protected |
+| `git push -u origin HEAD` (not on `main`/`master`) | `HEAD` does not resolve to a protected branch |
+
+When blocked, the hook prints a message naming the branch and describing the pull-request workflow,
+then exits with status 2. Claude Code surfaces that message to the user and does not run the
+original command.
 
 ### Sync modes
 
@@ -267,8 +302,9 @@ bash hooks/branch-name.sh -C /path/to/worktree add-oauth-login
 ```
 git-autosync/
 ├── hooks/
-│   ├── hooks.json              # SessionStart
-│   ├── session-start.sh        # entry point: run the sync, one JSON report
+│   ├── hooks.json              # SessionStart, PreBash
+│   ├── session-start.sh        # SessionStart entry point: run the sync, one JSON report
+│   ├── protect-branches.sh     # PreBash hook: block direct pushes to main/master
 │   ├── git-sync.sh             # worker: sync the current branch, then chain the submodules
 │   ├── ensure-submodules.sh    # worker: populate + attach + sync submodules
 │   ├── branch-name.sh          # worker: one branch name across superproject + submodules
@@ -284,7 +320,8 @@ git-autosync/
     ├── test-sync-modes.sh
     ├── test-submodule-sync.sh
     ├── test-branch-name.sh
-    └── test-disable-switch.sh
+    ├── test-disable-switch.sh
+    └── test-protect-branches.sh
 ```
 
 ```bash
