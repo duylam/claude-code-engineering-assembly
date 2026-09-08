@@ -11,6 +11,18 @@
           }
         ]
       }
+    ],
+    "PreBash": [
+      {
+        "matcher": "git push",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/protect-branches.sh\"",
+            "timeout": 30
+          }
+        ]
+      }
     ]
   }
 }
