@@ -19,3 +19,23 @@ Supersedes: -
 ### Alternatives
 - Keep the WorktreeCreate hook for the `claude --worktree` path — rejected; that path still syncs via its own SessionStart, so the extra hook was redundant.
 - Keep worktree teardown and remote-branch reaping — rejected; remote-control manages its own worktree lifecycle, and the user accepted that pushed `worktree-*` branches accumulate on origin.
+
+## DEC-2026-09-08-01 · 2026-09-08T10:50:24+07:00 · status=accepted
+Title: git-autosync becomes merge-only; reset mode removed
+Work: git-autosync-recap
+Session: unknown
+Tags: git-autosync, plugin
+Refs: LOG-2026-09-08-01
+Supersedes: -
+
+### Consideration
+- The three slash commands are being removed. The destructive `reset` sync mode was only reachable through those commands (and raw CLI), and is not part of the must-have session-start state (merge + attach). Keeping it would leave a documented destructive path with no Claude-facing entry point.
+
+### Decision
+- Remove `reset` mode entirely. The plugin (hook + both workers) now only ever merges. Reset code, `--mode` parsing, the reset preflight (`assert_clean_recursive`), and reset-focused tests are deleted.
+
+### Rationale
+- Operator explicitly chose merge-only. It makes the plugin's surface exactly the must-have state, removes dead/unreachable destructive code, and simplifies the workers and tests. Direct-CLI reset was the only thing lost, and was not requested.
+
+### Alternatives
+- Keep reset as a direct-CLI-only capability — rejected by the operator; would preserve a larger, partly-dead surface for a power-user path nobody asked to retain.

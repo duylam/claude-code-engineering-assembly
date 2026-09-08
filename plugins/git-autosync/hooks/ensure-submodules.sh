@@ -11,16 +11,8 @@
 #   3. that branch is reconciled with the commit the superproject currently records
 #      for that submodule (the gitlink in superproject's HEAD)
 #
-# Step 3 obeys the same two modes as git-sync.sh:
-#
-#   merge (default)  fast-forward, or a merge commit when the submodule branch
-#                    has commits of its own. Never destroys anything.
-#   reset            discard local commits and land exactly on the gitlink.
-#                    Refuses to touch ANYTHING when any tree is dirty, and says
-#                    so with a non-zero exit.
-#
-# Only a human passes `--mode reset`; the hooks pass no mode at all, so an
-# unattended run is always `merge` and always exits 0.
+# Step 3 is always a merge: fast-forward, or a merge commit when the submodule
+# branch has commits of its own. Never destroys anything, and always exits 0.
 #
 # The commit to sync to is always the gitlink the superproject currently records
 # for this submodule (`git rev-parse "HEAD:<path>"`), which is set by the
@@ -43,7 +35,7 @@
 # creating a branch named after your feature inside somebody else's repo helps
 # no one.
 #
-# In merge mode nothing here is destructive:
+# Nothing here is destructive:
 #   - `git submodule update` is only run over a top-level submodule that is
 #     not populated yet, where there is no local work to rewind. A populated
 #     one is only asked to fill in its own nested submodules.
@@ -52,10 +44,6 @@
 #   - a conflicted merge is rolled back rather than left in the tree.
 #   - any git failure becomes a warning naming the manual command to run, and
 #     the script still succeeds.
-#
-# Reset mode is destructive by definition - that is what it is for. It is
-# guarded by a preflight that refuses the whole run over a single dirty tree
-# anywhere, so it either does everything or nothing.
 #
 # Runs against the WORKTREE it is invoked from (`git rev-parse --show-toplevel`
 # from the starting directory), which is what a worktree session should sync;
@@ -78,21 +66,17 @@ source "$SCRIPT_DIR/lib/git-common.sh"
 START_DIR="$PWD"
 REPO_ROOT=""
 BRANCH=""
-MODE="$DEFAULT_MODE"
 
 usage() {
     cat <<EOF
-Usage: $SCRIPT_NAME [--mode ${MODES[0]}|${MODES[1]}] [-C <dir>]
+Usage: $SCRIPT_NAME [-C <dir>]
 
 Populates every submodule recursively, attaches each top-level submodule to a
 branch named after the superproject's current branch, and reconciles that
-branch with the submodule's own remote. Warns and succeeds when it cannot.
-Prints nothing when everything is already correct.
+branch with the submodule's own remote (merge only, never destructive). Warns
+and succeeds when it cannot. Prints nothing when everything is already correct.
 
 Options:
-  --mode <${MODES[0]}|${MODES[1]}>
-             ${MODES[0]}: keep local commits, fast-forwarding or merging (default)
-             ${MODES[1]}: discard local commits; fails when any tree is dirty
   -C <dir>   Start from <dir> instead of the current directory
   -h, --help Show this help
 EOF
@@ -103,14 +87,6 @@ EOF
 finish() {
     render_report
     exit 0
-}
-
-# Print the report and stop, unsuccessfully. Reachable ONLY from reset mode,
-# which no hook can select - so the "a hook never fails" contract survives
-# having a failure path in the same file.
-fail_fast() {
-    render_report
-    exit 1
 }
 
 on_error() {
@@ -248,16 +224,6 @@ sync_submodule() {
         fi
     fi
 
-    if [[ "$MODE" == "reset" ]]; then
-        [[ "$head_sha" != "$gitlink_sha" ]] || return 0
-        if run_capture git -C "$sub" reset --hard "$gitlink_sha"; then
-            add_note "reset $path to superproject gitlink (${gitlink_sha:0:7}); the previous tip ${head_sha:0:7} is still reachable from its reflog"
-            return 0
-        fi
-        add_warning "could not reset $path to superproject gitlink ($(capture_reason))"
-        fail_fast
-    fi
-
     # Already at or ahead of the gitlink — nothing to do.
     if git -C "$sub" merge-base --is-ancestor "$gitlink_sha" "$head_sha"; then
         return 0
@@ -298,13 +264,6 @@ main() {
         finish
     fi
 
-    # Reset either does everything or nothing, so the whole repository is
-    # inspected before the first ref moves. Running this per-submodule instead
-    # would leave a half-reset tree the moment the third one turned out dirty.
-    if [[ "$MODE" == "reset" ]]; then
-        assert_clean_recursive "$REPO_ROOT" || fail_fast
-    fi
-
     while IFS=$'\t' read -r name path; do
         [[ -n "$path" ]] || continue
         ensure_populated "$path" || continue
@@ -318,14 +277,6 @@ main() {
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --mode)
-            MODE="$(parse_mode "${2:-}")"
-            if [[ -z "$MODE" ]]; then
-                echo "$SCRIPT_NAME: --mode must be one of: ${MODES[*]}" >&2
-                exit 1
-            fi
-            shift 2
-            ;;
         -C)
             START_DIR="${2:-}"
             if [[ -z "$START_DIR" || ! -d "$START_DIR" ]]; then
