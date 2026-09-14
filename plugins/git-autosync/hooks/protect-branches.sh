@@ -1,5 +1,5 @@
 #!/bin/bash
-# PreBash hook: block git push operations that would update main or master
+# PreToolUse (Bash) hook: block git push operations that would update main or master
 # directly on the remote. Exits 2 with a descriptive message when blocked;
 # exits 0 otherwise. Controlled by GIT_AUTOSYNC_DISABLE like all plugin hooks.
 set -uo pipefail
@@ -11,7 +11,7 @@ fi
 
 readonly PROTECTED=(main master)
 
-# Read and parse the PreBash hook JSON payload from stdin.
+# Read and parse the PreToolUse (Bash) hook JSON payload from stdin.
 INPUT="$(cat)"
 
 if command -v jq &>/dev/null; then
@@ -33,14 +33,18 @@ esac
 deny() {
     local branch="$1"
     local detail="${2:-}"
-    printf '\nBranch protection: "%s" cannot be updated directly on the remote.\n' "$branch"
-    [[ -n "$detail" ]] && printf '%s\n' "$detail"
-    printf '\nProtected branches must be updated through a pull request:\n'
-    printf '  1. Create a feature branch:  git checkout -b my-feature-branch\n'
-    printf '  2. Push that branch:         git push origin my-feature-branch\n'
-    printf '  3. Open a pull request targeting "%s"\n' "$branch"
-    printf '\nTo bring your local pointer up to date without pushing:\n'
-    printf '  git fetch origin && git merge origin/%s\n' "$branch"
+    # On exit 2 for a PreToolUse hook, Claude Code surfaces the hook's stderr as
+    # the block reason, so send the guidance there rather than to stdout.
+    {
+        printf '\nBranch protection: "%s" cannot be updated directly on the remote.\n' "$branch"
+        [[ -n "$detail" ]] && printf '%s\n' "$detail"
+        printf '\nProtected branches must be updated through a pull request:\n'
+        printf '  1. Create a feature branch:  git checkout -b my-feature-branch\n'
+        printf '  2. Push that branch:         git push origin my-feature-branch\n'
+        printf '  3. Open a pull request targeting "%s"\n' "$branch"
+        printf '\nTo bring your local pointer up to date without pushing:\n'
+        printf '  git fetch origin && git merge origin/%s\n' "$branch"
+    } >&2
     exit 2
 }
 

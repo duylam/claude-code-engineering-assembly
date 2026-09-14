@@ -17,7 +17,7 @@ CLONE="$SANDBOX/clone"
 
 HOOK="$HOOKS/protect-branches.sh"
 
-# Simulate a PreBash hook invocation by piping a synthetic JSON payload to the
+# Simulate a PreToolUse (Bash) hook invocation by piping a synthetic JSON payload to the
 # hook from inside the clone directory (so git commands see the real repo).
 # Outputs the hook's exit code as a plain string.
 invoke() {
@@ -113,7 +113,9 @@ check "git reset --hard origin/main"              "yes" "$(allowed 'git reset --
 echo
 
 echo "--- denial message is descriptive ---"
-MSG="$(cd "$CLONE" && printf '{"tool_input":{"command":"git push origin main"}}' | bash "$HOOK" || true)"
+# The hook writes its block reason to stderr, since Claude Code surfaces a
+# PreToolUse hook's stderr as the denial reason on exit 2; capture it via 2>&1.
+MSG="$(cd "$CLONE" && printf '{"tool_input":{"command":"git push origin main"}}' | bash "$HOOK" 2>&1 || true)"
 check "mentions the branch name" "yes" "$([[ "$MSG" == *'"main"'* ]] && echo yes || echo no)"
 check "mentions pull request"    "yes" "$([[ "$MSG" == *"pull request"* ]] && echo yes || echo no)"
 check "mentions feature branch"  "yes" "$([[ "$MSG" == *"feature"* ]] && echo yes || echo no)"

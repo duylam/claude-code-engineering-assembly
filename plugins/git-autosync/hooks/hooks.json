@@ -12,9 +12,9 @@
         ]
       }
     ],
-    "PreBash": [
+    "PreToolUse": [
       {
-        "matcher": "git push",
+        "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
