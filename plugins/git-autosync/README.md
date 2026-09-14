@@ -56,7 +56,7 @@ No settings, no `.local.md`, nothing to configure.
 | Event | Script | Timeout | What it does |
 |---|---|---|---|
 | `SessionStart` (`startup`, `resume`) | `session-start.sh` | 600s | Syncs **the branch the session opened on**, then the submodules |
-| `PreBash` (any `git push`) | `protect-branches.sh` | 30s | Blocks pushes that would update `main` or `master` on the remote |
+| `PreToolUse` (`Bash`, any `git push`) | `protect-branches.sh` | 30s | Blocks pushes that would update `main` or `master` on the remote |
 
 Every run is a merge, and every run exits 0.
 
@@ -82,7 +82,7 @@ One switch turns **all plugin hooks** off: set **`GIT_AUTOSYNC_DISABLE`** to any
 
 ### Branch protection
 
-The `PreBash` hook intercepts every `git push` command before Claude Code executes it and blocks
+The `PreToolUse` hook intercepts every `git push` command before Claude Code executes it and blocks
 any that would update `main` or `master` on the remote.
 
 **Blocked**
@@ -264,9 +264,9 @@ bash hooks/ensure-submodules.sh -C /path/to/worktree
 ```
 git-autosync/
 ├── hooks/
-│   ├── hooks.json              # SessionStart, PreBash
+│   ├── hooks.json              # SessionStart, PreToolUse
 │   ├── session-start.sh        # entry point: run the sync, one JSON report
-│   ├── protect-branches.sh     # PreBash hook: block direct pushes to main/master
+│   ├── protect-branches.sh     # PreToolUse hook: block direct pushes to main/master
 │   ├── git-sync.sh             # worker: merge the current branch, then chain the submodules
 │   ├── ensure-submodules.sh    # worker: populate + attach + merge submodules
 │   └── lib/git-common.sh       # shared helpers (repo/remote resolution, reporting)
