@@ -21,9 +21,13 @@
       }
     }
   },
+  "respondToBashCommands": false,
   "alwaysThinkingEnabled": true,
   "plansDirectory": ".claude/plans",
-  "respondToBashCommands": false,
   "outputStyle": "Default",
-  "effortLevel": "medium"
+  "effortLevel": "high",
+  "attribution": {
+    "sessionUrl": false,
+    "commit": "Generated with AI\n\nCo-Authored-By: Claude <81847+claude@users.noreply.github.com>"
+  }
 }
