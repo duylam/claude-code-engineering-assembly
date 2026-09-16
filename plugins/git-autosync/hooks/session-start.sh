@@ -80,16 +80,21 @@ fi
 
 summary="The git repository is in attached mode for new commits. Each top-level submodule is in attached mode for new commits (inside the submodule)."
 
+# This summary is for the AGENT, not the human. On SessionStart, Claude Code adds
+# `hookSpecificOutput.additionalContext` (and plain-text stdout) to the model's
+# context - that is the channel that reaches the LLM. `systemMessage` is
+# deliberately NOT set: it surfaces only in the human's terminal and would not
+# reach the model, so emitting it here would just be human-facing noise.
 if command -v jq >/dev/null 2>&1; then
     jq -n --arg msg "$summary" \
         '{
-            systemMessage: $msg,
             hookSpecificOutput: {
                 hookEventName: "SessionStart",
                 additionalContext: $msg
             }
         }'
 else
+    # No jq: plain stdout is added to the model's context on SessionStart.
     echo "$summary"
 fi
 

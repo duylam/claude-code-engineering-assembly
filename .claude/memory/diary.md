@@ -58,3 +58,18 @@ Closes: -
 ### Next
 - [NEXT-2026-09-16-01] Open PR in the claude-code-engineering-assembly submodule repo; after merge, bump the superproject submodule pointer directly (no superproject PR).
 - [NEXT-2026-09-16-02] Manual smoke test in a real submodule-bearing clone: verify fetch+prune, main-push denial, attached-mode summary, both /launch-status skills, and barrier markers.
+
+## LOG-2026-09-16-02 · 2026-09-16T14:40:40+07:00 · commit-id=01496f7
+Work: git-plugin-split
+Phase: implement
+Session: c77bd111-c06b-46d2-918f-92551f2db204
+Tags: git, hooks
+Refs: DEC-2026-09-16-01
+Closes: -
+
+### Did
+- git-autosync session-start.sh: dropped the `systemMessage` field from the SessionStart JSON so the attached-mode git-state summary reaches the LLM only via `hookSpecificOutput.additionalContext` (the model-visible channel), not the human terminal. Confirmed via docs: additionalContext/plain stdout is added to model context on SessionStart; systemMessage is human-terminal only. Suite still passes; emitted JSON now carries only additionalContext.
+### Why
+- Agreed design is AI-only (not human) for that summary; systemMessage duplicated it into the human terminal, contradicting that.
+### Next
+- [NEXT-2026-09-16-03] (tracked already) superproject pointer bump after PR #9 merge; manual smoke test in a real clone.
