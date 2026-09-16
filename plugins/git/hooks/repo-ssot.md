@@ -1,7 +1,6 @@
 # The Repository Is the Single Source of Truth
 
-This project is driven through an agent whose entire working world is the
-repository. Uphold the following in all work this session.
+Uphold the following in all work this session.
 
 ## The repository is the authority
 
