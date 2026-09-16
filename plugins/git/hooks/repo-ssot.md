@@ -30,3 +30,22 @@ When a commit embodies a key decision — choosing one approach over an alternat
 accepting a trade-off, working around a constraint — its message must record the
 **rationale**: why, and what was rejected, not just what changed. Routine,
 self-evident changes need no such ceremony.
+
+## Work reaches the default branch through a pull request
+
+Protected branches are never updated directly. The route from a local branch to
+the default branch is fixed:
+
+- **Push with tracking.** Use `git push -u origin HEAD`. `HEAD` keeps the remote
+  branch name identical to the local one, and `-u` sets the upstream on the first
+  push — a harmless no-op on every push after it. A branch with no upstream
+  reports no ahead/behind state, so unpushed work reads as nothing to push.
+- **Submodules get their own pull requests.** When the work touched a submodule,
+  the reviewable change lives in that submodule's repository — open the pull
+  request there, once per affected submodule. A superproject diff that moves
+  nothing but submodule pointers carries no reviewable content of its own; commit
+  and push those pointer updates directly.
+- **Merge with a merge commit.** Default to `gh pr merge --merge` (the "Create a
+  merge commit" button). Squash and rebase both rewrite the branch into new
+  commits, discarding the individual commits that are the work diary above. Use
+  `--squash` or `--rebase` only when the user asks for it in that request.
