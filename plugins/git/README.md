@@ -23,7 +23,12 @@ Three jobs, all running the moment `claude` launches:
    anything transient in the session — a user prompt, a file or URL loaded into
    context, a tool-call result, or recollection. The commit history is the work
    diary, and a commit carrying a key decision must capture the *why* in its
-   message. It is injected once per fresh or wiped context (matcher
+   message. The same instruction fixes the route from a local branch to the
+   default branch — push with `git push -u origin HEAD` so the remote branch
+   keeps its name and gains an upstream, open the pull request in the submodule
+   repository when the work touched a submodule, and merge with `gh pr merge
+   --merge` rather than squashing or rebasing away the individual commits. It is
+   injected once per fresh or wiped context (matcher
    `startup|resume|clear|compact`) by `cat`-ing the markdown to stdout — no
    per-project setup. Edit `hooks/repo-ssot.md` to change what installed projects
    receive.

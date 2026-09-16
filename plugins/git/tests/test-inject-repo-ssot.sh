@@ -15,6 +15,12 @@ check "states the repo wins on conflict" "yes" \
       "$(printf '%s' "$out" | grep -q 'win' && echo yes || echo no)"
 check "carries the commit-rationale rule" "yes" \
       "$(printf '%s' "$out" | grep -q 'rationale' && echo yes || echo no)"
+check "carries the push-tracking rule" "yes" \
+      "$(printf '%s' "$out" | grep -q 'push -u origin HEAD' && echo yes || echo no)"
+check "carries the submodule-PR rule" "yes" \
+      "$(printf '%s' "$out" | grep -q 'ubmodule' && echo yes || echo no)"
+check "carries the merge-commit rule" "yes" \
+      "$(printf '%s' "$out" | grep -q 'gh pr merge --merge' && echo yes || echo no)"
 echo
 
 echo "--- missing instruction file: silent, exit 0 ---"
