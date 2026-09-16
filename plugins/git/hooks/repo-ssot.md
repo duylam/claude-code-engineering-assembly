@@ -4,8 +4,7 @@ Uphold the following in all work this session.
 
 ## The repository is the authority
 
-The git repository's **objects** are the authoritative source of truth for this
-project — the final say on decisions, state, and history. In order of how often
+The git repository's **objects** are the authoritative source of truth — the final say on decisions, state, and history. In order of how often
 they are consulted:
 
 - **Commits** — the project's history and its **work diary**: what was done, in
