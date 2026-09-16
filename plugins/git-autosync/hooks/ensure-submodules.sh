@@ -4,15 +4,16 @@
 # ensure-submodules.sh - make this superproject's submodules ready to work in
 #
 # Guarantees, for every TOP-LEVEL submodule listed in .gitmodules:
-#   1. it is populated (cloned + checked out), recursively, so nested
-#      submodules come along with it
+#   1. it is populated (cloned + checked out) ONE LEVEL - nested submodules are
+#      left alone, not initialized
 #   2. it sits on a local branch whose name matches the superproject's branch,
 #      instead of the detached HEAD `git submodule update` leaves behind
 #   3. that branch is reconciled with the commit the superproject currently records
 #      for that submodule (the gitlink in superproject's HEAD)
 #
-# Step 3 is always a merge: fast-forward, or a merge commit when the submodule
-# branch has commits of its own. Never destroys anything, and always exits 0.
+# Step 3 is fast-forward ONLY: it brings the gitlink commits in when the branch
+# has none of its own, and leaves the branch as is otherwise. Never destroys
+# anything, and always exits 0.
 #
 # The commit to sync to is always the gitlink the superproject currently records
 # for this submodule (`git rev-parse "HEAD:<path>"`), which is set by the
@@ -38,10 +39,11 @@
 # Nothing here is destructive:
 #   - `git submodule update` is only run over a top-level submodule that is
 #     not populated yet, where there is no local work to rewind. A populated
-#     one is only asked to fill in its own nested submodules.
+#     one is left exactly as it stands.
 #   - `git checkout -B` is never used, so a submodule branch that already
 #     carries local commits is never moved by the attach step.
-#   - a conflicted merge is rolled back rather than left in the tree.
+#   - the reconcile is fast-forward only, so a submodule branch with commits of
+#     its own is never rewritten or merged into.
 #   - any git failure becomes a warning naming the manual command to run, and
 #     the script still succeeds.
 #
@@ -132,26 +134,24 @@ resolve_context() {
     fi
 }
 
-# Populate a top-level submodule and everything underneath it.
+# Populate a top-level submodule. One level only: nested submodules are left
+# alone (they are vendored third-party trees, not this project's concern).
 ensure_populated() {
     local path="$1"
 
     if [[ -e "$REPO_ROOT/$path/.git" ]]; then
         # Already populated: never run `submodule update` over it, that would
-        # rewind any local work to the gitlink. Only fill in nested modules,
-        # which is a no-op when it has none.
-        if ! run_capture git -C "$REPO_ROOT/$path" submodule update --init --recursive; then
-            add_warning "could not initialize nested submodules under $path ($(capture_reason)); run: git -C '$REPO_ROOT/$path' submodule update --init --recursive"
-        fi
+        # rewind any local work to the gitlink. And do not descend into nested
+        # submodules - the sync is one level deep.
         return 0
     fi
 
-    if run_capture git -C "$REPO_ROOT" submodule update --init --recursive -- "$path"; then
+    if run_capture git -C "$REPO_ROOT" submodule update --init -- "$path"; then
         add_note "initialized $path"
         return 0
     fi
 
-    add_warning "could not initialize $path ($(capture_reason)); run: git -C '$REPO_ROOT' submodule update --init --recursive -- '$path'"
+    add_warning "could not initialize $path ($(capture_reason)); run: git -C '$REPO_ROOT' submodule update --init -- '$path'"
     return 1
 }
 
@@ -232,29 +232,19 @@ sync_submodule() {
     behind="$(git -C "$sub" rev-list --count "$head_sha..$gitlink_sha" 2>/dev/null || echo "?")"
 
     if tree_is_dirty "$sub"; then
-        add_warning "$path is $behind commit(s) behind the superproject gitlink but has uncommitted changes; not merging"
+        add_warning "$path is $behind commit(s) behind the superproject gitlink but has uncommitted changes; not fast-forwarding"
         return 0
     fi
 
-    if run_capture git -C "$sub" merge --no-edit "$gitlink_sha"; then
-        if git -C "$sub" merge-base --is-ancestor "$head_sha" "$gitlink_sha"; then
-            add_note "fast-forwarded $path to superproject gitlink (${gitlink_sha:0:7}); it was $behind commit(s) behind"
-        else
-            add_note "merged superproject gitlink (${gitlink_sha:0:7}) into $BRANCH in $path"
-        fi
+    # Fast-forward only, matching the superproject procedure: bring the gitlink
+    # commits in when the branch has none of its own, and leave it as is
+    # otherwise ("ignore if it can't").
+    if run_capture git -C "$sub" merge --ff-only "$gitlink_sha"; then
+        add_note "fast-forwarded $path to superproject gitlink (${gitlink_sha:0:7}); it was $behind commit(s) behind"
         return 0
     fi
 
-    # Same reasoning as git-sync.sh: a conflicted index inside a submodule is
-    # worse than an unsynced submodule, so put it back and name the command.
-    local reason
-    reason="$(capture_reason)"
-    if run_capture git -C "$sub" merge --abort; then
-        add_warning "merging gitlink into $path conflicts ($reason); the merge was rolled back - resolve it yourself with: git -C '$sub' merge $gitlink_sha"
-        return 0
-    fi
-
-    add_warning "could not merge gitlink in $path ($reason), and could not roll the attempt back; check 'git -C \"$sub\" status'"
+    add_note "$path has local commits and cannot be fast-forwarded to the superproject gitlink (${gitlink_sha:0:7}); leaving it as is"
 }
 
 main() {

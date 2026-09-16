@@ -28,11 +28,75 @@ readonly BRANCH_CANDIDATES=(main master)
 # permanently dirty. See ensure_worktrees_excluded.
 readonly WORKTREE_DIRS=(".worktrees" ".claude/worktrees")
 
-# The plugin's single global off switch. When GIT_AUTOSYNC_DISABLE is set to
-# anything other than an empty string or "0", the SessionStart hook turns itself
-# into a no-op.
+# The plugin's single global off switch. When GIT_AUTOSYNC_DISABLE is set to any
+# non-empty string, the SessionStart hook turns itself into a no-op.
 autosync_disabled() {
-    [[ -n "${GIT_AUTOSYNC_DISABLE:-}" && "${GIT_AUTOSYNC_DISABLE}" != "0" ]]
+    [[ -n "${GIT_AUTOSYNC_DISABLE:-}" ]]
+}
+
+# The shared session directory both the `git` and `git-autosync` plugins agree
+# on. It holds the fetch barrier markers (fetch-started/fetch-done, written by
+# the `git` plugin) and each plugin's latest launch status. Keyed by session id.
+#
+# Prints the path and creates it. Prints nothing on a missing session id.
+session_dir() {
+    local session_id="$1" dir
+
+    [[ -n "$session_id" ]] || return 0
+    dir="${TMPDIR:-/tmp}/claude-git/$session_id"
+    mkdir -p "$dir" 2>/dev/null || return 0
+    echo "$dir"
+}
+
+# The fetch barrier. This plugin never fetches; it reads the remote-tracking
+# refs the `git` plugin refreshes. The two run their SessionStart hooks in
+# parallel with no ordering guarantee, so wait for the `git` plugin's fetch to
+# finish before attaching:
+#
+#   - up to GIT_AUTOSYNC_GRACE_SECS (default 5) for `fetch-started`. Absent means
+#     the `git` plugin is not participating (not installed / disabled) - proceed
+#     immediately rather than block a session that will never see a fetch.
+#   - then up to GIT_AUTOSYNC_FETCH_WAIT_SECS (default 240) for `fetch-done`,
+#     which the `git` plugin always writes, even on failure or timeout.
+#
+# Bounded and best-effort: it returns in every case and never fails the session.
+# The bounds are env-overridable so tests can run it in milliseconds.
+wait_for_fetch() {
+    local dir grace wait_done waited
+    dir="$(session_dir "$1")" || return 0
+    [[ -n "$dir" ]] || return 0
+
+    grace="${GIT_AUTOSYNC_GRACE_SECS:-5}"
+    wait_done="${GIT_AUTOSYNC_FETCH_WAIT_SECS:-240}"
+
+    waited=0
+    while [[ ! -e "$dir/fetch-started" ]]; do
+        if awk "BEGIN{exit !($waited >= $grace)}"; then
+            return 0  # no fetch-started within the grace window: not participating
+        fi
+        sleep 0.2
+        waited="$(awk "BEGIN{print $waited + 0.2}")"
+    done
+
+    waited=0
+    while [[ ! -e "$dir/fetch-done" ]]; do
+        if awk "BEGIN{exit !($waited >= $wait_done)}"; then
+            return 0  # bound reached: proceed regardless
+        fi
+        sleep 0.5
+        waited="$(awk "BEGIN{print $waited + 0.5}")"
+    done
+    return 0
+}
+
+# Write the collected report to <session_dir>/git-autosync.status, latest only.
+# The read-only launch-status skill reads exactly this file. Best-effort.
+persist_status() {
+    local dir
+
+    dir="$(session_dir "$1")" || return 0
+    [[ -n "$dir" ]] || return 0
+    render_report >"$dir/git-autosync.status" 2>/dev/null || true
 }
 
 # Collected output. Notes are things that were changed, warnings are things a
@@ -173,24 +237,6 @@ resolve_default_branch() {
     # "No default branch here" is an answer, not a failure - callers test the
     # output, and returning non-zero would trip the caller's `set -e`.
     return 0
-}
-
-# Absolute path of the worktree that currently has branch $2 checked out, or
-# nothing when no worktree does.
-worktree_holding_branch() {
-    local repo="$1" branch="$2" line path=""
-
-    while IFS= read -r line; do
-        case "$line" in
-            "worktree "*)
-                path="${line#worktree }"
-                ;;
-            "branch refs/heads/$branch")
-                echo "$path"
-                return 0
-                ;;
-        esac
-    done < <(git -C "$repo" worktree list --porcelain 2>/dev/null)
 }
 
 # Top-level submodules of the tree at $1, one `<name><TAB><path>` line each,

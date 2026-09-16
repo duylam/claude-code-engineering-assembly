@@ -20,6 +20,14 @@ trap 'rm -rf "$SANDBOX"' EXIT
 make_origin "$SANDBOX"
 make_sub_origin "$SANDBOX" tracked   # .gitmodules will declare `branch = main`
 make_sub_origin "$SANDBOX" vendored  # no branch key
+
+# A nested submodule inside `tracked`, to prove the sync stays ONE level deep:
+# after populate, tracked/nested must remain empty (never initialized).
+git -C "$SANDBOX/tracked-seed" -c protocol.file.allow=always \
+    submodule add -q "$SANDBOX/vendored.git" nested 2>/dev/null
+git -C "$SANDBOX/tracked-seed" commit -qm "add nested submodule"
+git -C "$SANDBOX/tracked-seed" push -q origin main
+
 attach_submodule "$SANDBOX" tracked main
 attach_submodule "$SANDBOX" vendored
 
@@ -46,6 +54,8 @@ check "vendored contains the superproject gitlink" "yes" \
       "$(git -C "$CLONE/vendored" merge-base --is-ancestor "$VENDORED_GITLINK" HEAD && echo yes || echo no)"
 check "and it reported the work" "yes" \
       "$([[ "$out" == *"initialized tracked"* ]] && echo yes || echo no)"
+check "nested submodule left empty (one level only)" "no" \
+      "$([[ -e "$CLONE/tracked/nested/.git" ]] && echo yes || echo no)"
 echo
 
 echo "--- advancing the remote without changing the gitlink does not move the submodule ---"

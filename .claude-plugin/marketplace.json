@@ -43,8 +43,15 @@
       "homepage": "https://github.com/duylam/claude-code-engineering-assembly/tree/main/plugins/work-journal"
     },
     {
+      "name": "git",
+      "description": "Repo-wide git housekeeping before the first prompt of every session, for any git repository. At SessionStart it fetches every branch and tag from the remote and prunes stale branch and tag refs, so remote-tracking refs are aligned with the remote before the agent starts. It also simulates GitHub feature-branch protection: a PreToolUse hook blocks any git push that would update main or master directly on the remote, telling the agent to push a non-main/master branch and open a pull request. The fetch runs synchronously at SessionStart, does nothing outside a git repo, never fails a session, and turns off when GIT_PLUGIN_DISABLE is non-empty. The latest launch status is kept per session under the OS temp dir and reported on demand by the read-only launch-status skill.",
+      "category": "development",
+      "source": "./plugins/git",
+      "homepage": "https://github.com/duylam/claude-code-engineering-assembly/tree/main/plugins/git"
+    },
+    {
       "name": "git-autosync",
-      "description": "Puts a project into a known-good git state before the first prompt of every session: brings the branch the session opened on level with the remote's default branch (main, falling back to master), initializes submodules recursively, attaches each top-level submodule to the superproject's branch instead of a detached HEAD, and brings each one level with its own remote. The sync is always a merge and never destroys anything - a fast-forward when the branch has no local commits, a merge commit when it does. Bundles a read-only recap skill reporting the local branch and tracking remote (each with its commit id) and matching pull requests for the superproject and each top-level submodule. Built for projects driven through Claude Code Remote Sessions. Does nothing outside a git repo or in a repo with no remote, and never fails a session.",
+      "description": "Puts a working tree into attached mode before the first prompt of every session, network-free: it reads the remote-tracking refs the companion git plugin fetches and never fetches the superproject itself. Only when the root repo is on a branch (detached HEAD is a no-op), it fast-forwards that branch to the remote's default branch (main, falling back to master), then populates each top-level submodule one level deep, attaches it to a branch named after the superproject's branch instead of a detached HEAD, and fast-forwards it to the superproject's recorded gitlink. Fast-forward only - a diverged branch is left as is. Waits on the git plugin's fetch barrier, injects one attached-mode summary line for the agent, does nothing outside a git repo or in a repo with no remote, never fails a session, and turns off when GIT_AUTOSYNC_DISABLE is non-empty. Bundles read-only launch-status and recap skills. Built for projects driven through Claude Code Remote Sessions.",
       "category": "development",
       "source": "./plugins/git-autosync",
       "homepage": "https://github.com/duylam/claude-code-engineering-assembly/tree/main/plugins/git-autosync"

@@ -7,13 +7,6 @@
 
 HOOKS="$(cd "$(dirname "${BASH_SOURCE[0]}")/../hooks" && pwd)"
 
-# The SessionStart hook waits on the `git` plugin's fetch barrier. Tests drive
-# the hook directly with no `git` plugin running, so default both bounds to 0 -
-# wait_for_fetch then returns at once instead of spending real seconds.
-# test-barrier.sh overrides these per-invocation to exercise the wait itself.
-export GIT_AUTOSYNC_GRACE_SECS="${GIT_AUTOSYNC_GRACE_SECS:-0}"
-export GIT_AUTOSYNC_FETCH_WAIT_SECS="${GIT_AUTOSYNC_FETCH_WAIT_SECS:-0}"
-
 PASS=0
 FAIL=0
 
@@ -30,16 +23,6 @@ check() { # check <description> <expected> <actual>
 }
 
 yesno() { [[ -n "$1" ]] && echo yes || echo no; }
-
-# Pre-seed the worktree exclude entries so ensure_worktrees_excluded finds them
-# already present and stays a no-op - i.e. it does not emit its one-time
-# housekeeping note during a test that asserts the sync ran silently. Models the
-# steady state of a clone the plugin has already touched once.
-preexclude_worktrees() {
-    local repo="$1"
-    mkdir -p "$repo/.git/info"
-    printf '/.worktrees/\n/.claude/worktrees/\n' >> "$repo/.git/info/exclude"
-}
 
 # A fresh, empty sandbox directory named after test $1.
 #
