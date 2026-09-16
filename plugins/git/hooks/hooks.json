@@ -10,6 +10,15 @@
             "timeout": 120
           }
         ]
+      },
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/inject-repo-ssot.sh\""
+          }
+        ]
       }
     ],
     "PreToolUse": [
