@@ -1,11 +1,11 @@
 #!/bin/bash
 # PreToolUse (Bash) hook: block git push operations that would update main or master
 # directly on the remote. Exits 2 with a descriptive message when blocked;
-# exits 0 otherwise. Controlled by GIT_AUTOSYNC_DISABLE like all plugin hooks.
+# exits 0 otherwise. Controlled by GIT_PLUGIN_DISABLE like all plugin hooks.
 set -uo pipefail
 
-# Honor the plugin-wide disable switch.
-if [[ -n "${GIT_AUTOSYNC_DISABLE:-}" && "${GIT_AUTOSYNC_DISABLE:-}" != "0" ]]; then
+# Honor the plugin-wide disable switch: any non-empty value turns hooks off.
+if [[ -n "${GIT_PLUGIN_DISABLE:-}" ]]; then
     exit 0
 fi
 

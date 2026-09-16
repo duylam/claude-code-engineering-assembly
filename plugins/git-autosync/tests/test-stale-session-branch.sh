@@ -1,17 +1,14 @@
 #!/bin/bash
-# Regression suite for the failure that motivated 0.5.0.
-#
-# The shape being defended, reproduced exactly:
+# The worktree-session shape this plugin exists for, under the attach-only model.
 #
 #   `claude remote-control --spawn worktree` creates its worktree under
-#   .claude/worktrees/<name> and cuts worktree-<name> from origin/main WITHOUT
-#   firing WorktreeCreate. That directory is untracked, so the main checkout is
-#   dirty. Before 0.5.0 the sync bailed on that dirtiness BEFORE fetching, so
-#   `git fetch` never ran once, origin/main never advanced, and every session
-#   after the first opened on a branch cut from an ever-staler base.
+#   .claude/worktrees/<name> and cuts worktree-<name> from origin/main. That
+#   directory is untracked, so the main checkout goes dirty. The plugin excludes
+#   the worktree roots so the checkout does not stay dirty forever, and - reading
+#   the refs the `git` plugin already fetched - fast-forwards the session branch.
 #
-# The repo below also has `.worktrees/` in .gitignore, which is what made the
-# old exclude a no-op and hid the problem.
+# The repo below also has `.worktrees/` in .gitignore, which is what made the old
+# exclude a no-op and hid the original bug.
 set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -34,23 +31,20 @@ mkdir -p "$CLONE/.claude/worktrees"
 git -C "$CLONE" worktree add -q "$CLONE/.claude/worktrees/w1" -b worktree-w1 origin/main
 W1="$CLONE/.claude/worktrees/w1"
 
-# Other sessions merge their PRs while this worktree sits there.
+# Other sessions merge their PRs while this worktree sits there; the `git` plugin
+# then refreshes the remote-tracking refs (simulated by this fetch).
 advance_origin "$SANDBOX" c2
 advance_origin "$SANDBOX" c3
 TIP="$(git -C "$SANDBOX/seed" rev-parse HEAD)"
+git -C "$CLONE" fetch -q origin
 
-echo "--- the untracked worktree root must not starve the fetch ---"
-check "precondition: main checkout is dirty" "yes" \
+echo "--- the session branch is fast-forwarded to the fetched ref ---"
+check "precondition: main checkout is dirty (untracked worktree root)" "yes" \
       "$(yesno "$(git -C "$CLONE" status --porcelain)")"
-check "precondition: origin/main is stale" "yes" \
-      "$([[ "$(git -C "$CLONE" rev-parse origin/main)" != "$TIP" ]] && echo yes || echo no)"
-
 out="$(bash "$HOOKS/git-sync.sh" -C "$W1" 2>&1)"
-check "the fetch ran despite the dirty checkout" "$TIP" "$(git -C "$CLONE" rev-parse origin/main)"
-check "the default branch was fast-forwarded"    "$TIP" "$(git -C "$CLONE" rev-parse main)"
-check "the session branch was aligned"           "$TIP" "$(git -C "$W1" rev-parse HEAD)"
-check "no 'skipping the sync' warning"           "no" \
-      "$([[ "$out" == *"skipping the sync"* ]] && echo yes || echo no)"
+check "the session branch was aligned" "$TIP" "$(git -C "$W1" rev-parse HEAD)"
+check "and the note says fast-forwarded" "yes" \
+      "$([[ "$out" == *"fast-forwarded worktree-w1"* ]] && echo yes || echo no)"
 echo
 
 echo "--- the exclude covers Claude Code's own worktree root ---"
@@ -68,7 +62,7 @@ check "exclude not appended twice" "1" \
       "$(grep -cxF '/.claude/worktrees/' "$CLONE/.git/info/exclude")"
 echo
 
-echo "--- a session branch carrying work gets a merge commit, keeping its work ---"
+echo "--- a session branch carrying work is left untouched (ff-only) ---"
 git -C "$CLONE" worktree add -q "$CLONE/.claude/worktrees/w2" -b worktree-w2 "origin/main~1"
 W2="$CLONE/.claude/worktrees/w2"
 git -C "$W2" config user.email test@example.invalid
@@ -76,16 +70,13 @@ git -C "$W2" config user.name "test"
 echo mine > "$W2/mine"; git -C "$W2" add -A; git -C "$W2" commit -qm "session work"
 BEFORE="$(git -C "$W2" rev-parse HEAD)"
 out2="$(bash "$HOOKS/git-sync.sh" -C "$W2" 2>&1)"
-check "the branch moved" "no" \
-      "$([[ "$(git -C "$W2" rev-parse HEAD)" == "$BEFORE" ]] && echo yes || echo no)"
-check "it is a merge commit" "yes" \
-      "$(git -C "$W2" rev-parse -q --verify 'HEAD^2' >/dev/null && echo yes || echo no)"
-check "the remote tip is now an ancestor" "yes" \
-      "$(git -C "$W2" merge-base --is-ancestor "$TIP" HEAD && echo yes || echo no)"
+check "the branch did not move" "$BEFORE" "$(git -C "$W2" rev-parse HEAD)"
+check "no merge commit was made" "no" \
+      "$(git -C "$W2" rev-parse -q --verify 'HEAD^2' >/dev/null 2>&1 && echo yes || echo no)"
 check "the session's own commit survived" "yes" \
       "$(git -C "$W2" merge-base --is-ancestor "$BEFORE" HEAD && echo yes || echo no)"
-check "and the note says merged" "yes" \
-      "$([[ "$out2" == *"merged origin/main"* ]] && echo yes || echo no)"
+check "and the note says it cannot be fast-forwarded" "yes" \
+      "$([[ "$out2" == *"cannot be fast-forwarded"* ]] && echo yes || echo no)"
 echo
 
 echo "--- a dirty session worktree is reported, never moved ---"
@@ -99,30 +90,13 @@ check "and the warning says why" "yes" \
       "$([[ "$out3" == *"uncommitted changes"* ]] && echo yes || echo no)"
 echo
 
-echo "--- a branch outside the session namespace is synced too, now ---"
+echo "--- a human branch is fast-forwarded too ---"
 git -C "$CLONE" worktree add -q "$CLONE/.claude/worktrees/w4" -b my-feature "origin/main~1"
 W4="$CLONE/.claude/worktrees/w4"
 out4="$(bash "$HOOKS/git-sync.sh" -C "$W4" 2>&1)"
 check "human branch fast-forwarded" "$TIP" "$(git -C "$W4" rev-parse HEAD)"
-check "and it said so"              "yes" \
+check "and it said so" "yes" \
       "$([[ "$out4" == *"fast-forwarded my-feature"* ]] && echo yes || echo no)"
-echo
-
-echo "--- the main checkout is synced too, on whatever branch it is on ---"
-git -C "$CLONE" checkout -q -b main-side "origin/main~1"
-bash "$HOOKS/git-sync.sh" -C "$CLONE" >/dev/null 2>&1
-check "main checkout fast-forwarded" "$TIP" "$(git -C "$CLONE" rev-parse HEAD)"
-git -C "$CLONE" checkout -q main
-echo
-
-echo "--- a detached HEAD has no branch to sync ---"
-git -C "$CLONE" worktree add -q --detach "$CLONE/.claude/worktrees/w5" "origin/main~1"
-W5="$CLONE/.claude/worktrees/w5"
-BEFORE="$(git -C "$W5" rev-parse HEAD)"
-out5="$(bash "$HOOKS/git-sync.sh" -C "$W5" 2>&1)"
-check "detached HEAD untouched" "$BEFORE" "$(git -C "$W5" rev-parse HEAD)"
-check "and the warning says why" "yes" \
-      "$([[ "$out5" == *"detached HEAD"* ]] && echo yes || echo no)"
 echo
 
 echo "--- rule zero still holds ---"

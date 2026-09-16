@@ -39,3 +39,25 @@ Supersedes: -
 
 ### Alternatives
 - Keep reset as a direct-CLI-only capability — rejected by the operator; would preserve a larger, partly-dead surface for a power-user path nobody asked to retain.
+
+## DEC-2026-09-16-01 · 2026-09-16T14:23:33+07:00 · status=accepted
+Title: Enforce fetch-before-attach with a marker barrier, not hook ordering
+Work: git-plugin-split
+Session: c77bd111-c06b-46d2-918f-92551f2db204
+Tags: git, hooks, concurrency
+Refs: LOG-2026-09-16-01
+Supersedes: -
+
+### Consideration
+- git-autosync must attach using freshly-fetched refs, but the fetch now lives in a separate `git` plugin. Both hooks fire at SessionStart.
+
+### Decision
+- The `git` plugin writes `fetch-started` on entry and always writes `fetch-done` on exit (EXIT/TERM/INT trap). git-autosync waits up to 5s for `fetch-started` (absent => git plugin not participating, proceed at once), then up to 4min for `fetch-done`, then proceeds regardless. Markers live in a shared per-session OS-temp dir.
+
+### Rationale
+- Per official docs, no plugin hook fires before SessionStart on a normal launch (only `Setup`, gated behind --init/--init-only/--maintenance), and same-event hooks across plugins run in parallel with no ordering guarantee. A marker barrier is the only way to guarantee ordering. Always-write-done + a bounded wait guarantee git-autosync never hangs, even if the fetch fails or is killed at its 120s timeout.
+
+### Alternatives
+- Rely on hook ordering / a pre-SessionStart hook — rejected: no such hook exists on normal launches.
+- No barrier, accept the race — rejected: git-autosync could attach against stale refs on a fresh launch.
+- Merge both plugins so fetch and attach share one hook — rejected: user explicitly wants them separate (git plugin applies to any repo; autosync is worktree/submodule-specific).
