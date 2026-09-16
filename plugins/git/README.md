@@ -2,7 +2,7 @@
 
 Repo-wide git housekeeping at session start, for **any** git repository.
 
-Two jobs, both running the moment `claude` launches:
+Three jobs, all running the moment `claude` launches:
 
 1. **Fetch and prune.** Before the first prompt, the plugin fetches every branch
    and every tag from the remote and prunes stale branch and tag refs, so the
@@ -15,6 +15,18 @@ Two jobs, both running the moment `claude` launches:
    GitHub branch-protection rule gives you. The agent sees a clear denial telling
    it to push a non-`main`/`master` branch (same local branch name recommended)
    and open a pull request.
+
+3. **Single-Source-of-Truth instruction.** A `SessionStart` hook injects a
+   standing instruction (`hooks/repo-ssot.md`) into the agent's context: the git
+   repository's objects and content, together with its forge resources
+   (PR/issues/wiki), are the authoritative source of truth and **win** over
+   anything transient in the session — a user prompt, a file or URL loaded into
+   context, a tool-call result, or recollection. The commit history is the work
+   diary, and a commit carrying a key decision must capture the *why* in its
+   message. It is injected once per fresh or wiped context (matcher
+   `startup|resume|clear|compact`) by `cat`-ing the markdown to stdout — no
+   per-project setup. Edit `hooks/repo-ssot.md` to change what installed projects
+   receive.
 
 The fetch runs **synchronously** at `SessionStart`, so the agent only starts once
 it finishes.
