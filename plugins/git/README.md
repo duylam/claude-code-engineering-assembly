@@ -2,36 +2,11 @@
 
 Repo-wide git housekeeping at session start, for **any** git repository.
 
-Three jobs, all running the moment `claude` launches:
-
-1. **Fetch and prune.** Before the first prompt, the plugin fetches every branch
-   and every tag from the remote and prunes stale branch and tag refs, so the
-   local remote-tracking refs are aligned with the remote. This is what a session
-   should start from — including a `claude remote-control --spawn worktree`
-   worktree cut from a possibly-stale remote-tracking ref.
-
-2. **Feature-branch protection.** A `PreToolUse` hook blocks any `git push` that
-   would update `main` or `master` directly on the remote — the same guard a
-   GitHub branch-protection rule gives you. The agent sees a clear denial telling
-   it to push a non-`main`/`master` branch (same local branch name recommended)
-   and open a pull request.
-
-3. **Single-Source-of-Truth instruction.** A `SessionStart` hook injects a
-   standing instruction (`hooks/repo-ssot.md`) into the agent's context: the git
-   repository's objects and content, together with its forge resources
-   (PR/issues/wiki), are the authoritative source of truth and **win** over
-   anything transient in the session — a user prompt, a file or URL loaded into
-   context, a tool-call result, or recollection. The commit history is the work
-   diary, and a commit carrying a key decision must capture the *why* in its
-   message. The same instruction fixes the route from a local branch to the
-   default branch — push with `git push -u origin HEAD` so the remote branch
-   keeps its name and gains an upstream, open the pull request in the submodule
-   repository when the work touched a submodule, and merge with `gh pr merge
-   --merge` rather than squashing or rebasing away the individual commits. It is
-   injected once per fresh or wiped context (matcher
-   `startup|resume|clear|compact`) by `cat`-ing the markdown to stdout — no
-   per-project setup. Edit `hooks/repo-ssot.md` to change what installed projects
-   receive.
+**Fetch and prune.** Before the first prompt, the plugin fetches every branch and
+every tag from the remote and prunes stale branch and tag refs, so the local
+remote-tracking refs are aligned with the remote. This is what a session should
+start from — including a `claude remote-control --spawn worktree` worktree cut
+from a possibly-stale remote-tracking ref.
 
 The fetch runs **synchronously** at `SessionStart`, so the agent only starts once
 it finishes.
