@@ -61,3 +61,25 @@ Supersedes: -
 - Rely on hook ordering / a pre-SessionStart hook — rejected: no such hook exists on normal launches.
 - No barrier, accept the race — rejected: git-autosync could attach against stale refs on a fresh launch.
 - Merge both plugins so fetch and attach share one hook — rejected: user explicitly wants them separate (git plugin applies to any repo; autosync is worktree/submodule-specific).
+
+## DEC-2026-10-01-01 · 2026-10-01T17:20:48+07:00 · status=accepted
+Title: Merge git-autosync back into the git plugin; drop the fetch barrier
+Work: git-autosync-merge
+Session: unknown
+Tags: git, git-autosync, plugins, concurrency
+Refs: LOG-2026-10-01-01
+Supersedes: DEC-2026-09-16-01
+
+### Consideration
+- The fetch (git plugin) and the attach (git-autosync) are two SessionStart hooks in two plugins, coordinated by a marker barrier (fetch-started/fetch-done + wait_for_fetch) because same-event hooks across plugins run in parallel with no ordering guarantee. The operator now wants a single plugin that covers both — reversing the earlier "keep them separate" decision.
+
+### Decision
+- Fold git-autosync into the git plugin and delete git-autosync (directory + marketplace entry). The git plugin's one SessionStart hook runs fetch, then attach, in the same process. The barrier is removed entirely (fetch-started/fetch-done markers, wait_for_fetch, GIT_AUTOSYNC_GRACE_SECS/FETCH_WAIT_SECS). Each step keeps an independent off switch, hard-renamed with no aliases: GIT_PLUGIN_GIT_FETCH_DISABLED (fetch) and GIT_PLUGIN_WORKTREE_ATTACHED_MODE_DISABLED (attach). Old GIT_PLUGIN_DISABLE / GIT_AUTOSYNC_DISABLE are dropped. Skills become /git:launch-status (now both steps, one git.status) and /git:recap. git plugin 0.4.0 → 0.5.0.
+
+### Rationale
+- With both steps in one process, fetch-before-attach is guaranteed by sequence, so the barrier is dead coordination code. One plugin removes the duplicated session-start/lib/launch-status, the marker protocol, and two colliding test suites. Granular switches preserve fetch-without-attach control; the consistent GIT_PLUGIN_* namespace replaces the two ad-hoc names. Hard rename (no aliases) keeps the surface clean at the cost of a breaking change for existing setups.
+
+### Alternatives
+- Keep two hook entries inside the one plugin and keep the barrier — rejected: same cross-process race for no benefit once a single sequential hook is possible.
+- Keep a master off switch or back-compat aliases for the old env vars — rejected by the operator: two granular switches only, hard rename.
+- Also update downstream consumers that enable git-autosync@engineering-assembly — out of scope (other repos); flagged as follow-ups.

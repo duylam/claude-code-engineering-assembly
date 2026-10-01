@@ -73,3 +73,47 @@ Closes: -
 - Agreed design is AI-only (not human) for that summary; systemMessage duplicated it into the human terminal, contradicting that.
 ### Next
 - [NEXT-2026-09-16-03] (tracked already) superproject pointer bump after PR #9 merge; manual smoke test in a real clone.
+
+## LOG-2026-10-01-01 · 2026-10-01T17:20:48+07:00 · commit-id=7a52f39
+Work: git-autosync-merge
+Phase: implement
+Session: unknown
+Tags: git, git-autosync, plugins, engineering-assembly
+Refs: DEC-2026-10-01-01
+Closes: -
+
+### Did
+- Merged the git-autosync plugin into the git plugin and removed git-autosync (directory + marketplace entry). git plugin 0.4.0 -> 0.5.0.
+- Unified SessionStart into one session-start.sh: fetch + prune, then attach (git-sync.sh -> ensure-submodules.sh), in one process. Deleted the fetch barrier (fetch-started/fetch-done markers, wait_for_fetch, GIT_AUTOSYNC_GRACE_SECS/FETCH_WAIT_SECS) as dead code now that ordering is sequential.
+- Merged lib/git-common.sh (git-autosync superset minus barrier), the two launch-status skills into one /git:launch-status reading a single git.status (fetch + attach), and moved the recap skill to /git:recap. Worker scripts, recap, and attach tests moved via git rename.
+- Hard-renamed the off switches, no aliases: GIT_PLUGIN_GIT_FETCH_DISABLED (fetch) and GIT_PLUGIN_WORKTREE_ATTACHED_MODE_DISABLED (attach); dropped GIT_PLUGIN_DISABLE and GIT_AUTOSYNC_DISABLE. Hook timeout kept at 300s.
+- Tests: merged both suites into plugins/git/tests, deleted both test-barrier.sh, rewrote test-disable-switch.sh for the two new vars, added test-fetch-before-attach.sh to pin the ordering the barrier used to guarantee, and isolated the attach step in test-fetch-prune.sh. Full run: SUITE PASSED.
+
+### Why
+- Operator asked for one plugin covering both responsibilities, reversing the earlier split. With fetch and attach in one process the barrier is redundant; granular GIT_PLUGIN_* switches keep fetch-without-attach control with a consistent namespace. See DEC-2026-10-01-01.
+
+### Next
+- [NEXT-2026-10-01-01] Open a PR in the claude-code-engineering-assembly submodule (base main); after merge, bump the superproject gitlink directly (no superproject PR).
+- [NEXT-2026-10-01-02] Downstream migration (separate repos, out of this change): drop git-autosync@engineering-assembly and adopt the renamed switches in the superproject .claude/settings.json, claude-code-remote-control-project-template (.claude/settings.json + setup/user-claude-settings.json), and ai-sdlc-system (.claude/settings.json + template/.claude/settings.json).
+- [NEXT-2026-10-01-03] Manual smoke test in a real submodule-bearing clone: fetch+prune, attach + attached-mode summary, /git:launch-status, /git:recap, and each new disable switch.
+
+## LOG-2026-10-01-02 · 2026-10-01T17:45:00+07:00 · commit-id=d80814e
+Work: git-autosync-merge
+Phase: review
+Session: unknown
+Tags: git, plugins, review, engineering-assembly
+Refs: LOG-2026-10-01-01
+Closes: -
+
+### Did
+- Ran a 5-agent review over PR #13 (code quality, test coverage, comments, silent failures, simplification). No correctness bugs found.
+- Fixed three merge-induced issues (commit d80814e): added test-fetch-fail.sh to restore the failed-fetch contract lost when the barrier test suite was deleted (exit 0 + "could not fetch" warning + attach still runs); made session-start.sh record a Warning when git-sync.sh exits outside {0,10} instead of silently bucketing it as a no-op; fixed comment rot in test-merge-sync.sh ("the hook never fetches" -> git-sync.sh) and test-stale-session-branch.sh (external "git plugin" -> this plugin's fetch step).
+- Suite still SUITE PASSED. Posted a review summary comment on PR #13; PR remains MERGEABLE/CLEAN.
+
+### Why
+- The review confirmed the merge is sound; the three fixes close gaps the merge itself introduced. Remaining items are pre-existing and deliberately left out of this PR to hold scope.
+
+### Next
+- [NEXT-2026-10-01-04] Agent attached-mode summary over-claims "each top-level submodule is in attached mode" even when a submodule attach warned (pre-existing from git-autosync). Make the submodule clause conditional on submodule success (git-sync.sh / ensure-submodules.sh must signal it).
+- [NEXT-2026-10-01-05] Fix ensure-submodules.sh usage() text: "recursively" -> one level deep; "the submodule's own remote" -> the superproject gitlink; "merge only" -> fast-forward only (pre-existing inaccuracy).
+- [NEXT-2026-10-01-06] Deepen tests: assert the hookSpecificOutput/additionalContext JSON envelope shape (not just the substring), exercise the no-jq fallback paths, and cover submodule-level error branches (dirty / own-commits / on-demand-fetch failure / existing-branch checkout).

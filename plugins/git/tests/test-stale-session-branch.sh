@@ -5,7 +5,7 @@
 #   .claude/worktrees/<name> and cuts worktree-<name> from origin/main. That
 #   directory is untracked, so the main checkout goes dirty. The plugin excludes
 #   the worktree roots so the checkout does not stay dirty forever, and - reading
-#   the refs the `git` plugin already fetched - fast-forwards the session branch.
+#   the refs the fetch step already refreshed - fast-forwards the session branch.
 #
 # The repo below also has `.worktrees/` in .gitignore, which is what made the old
 # exclude a no-op and hid the original bug.
@@ -31,8 +31,8 @@ mkdir -p "$CLONE/.claude/worktrees"
 git -C "$CLONE" worktree add -q "$CLONE/.claude/worktrees/w1" -b worktree-w1 origin/main
 W1="$CLONE/.claude/worktrees/w1"
 
-# Other sessions merge their PRs while this worktree sits there; the `git` plugin
-# then refreshes the remote-tracking refs (simulated by this fetch).
+# Other sessions merge their PRs while this worktree sits there; the plugin's
+# fetch step then refreshes the remote-tracking refs (simulated by this fetch).
 advance_origin "$SANDBOX" c2
 advance_origin "$SANDBOX" c3
 TIP="$(git -C "$SANDBOX/seed" rev-parse HEAD)"
