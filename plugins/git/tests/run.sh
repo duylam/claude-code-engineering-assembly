@@ -1,8 +1,8 @@
 #!/bin/bash
-# Runs every git-autosync test. No arguments, no setup, no network: each test
+# Runs every git plugin test. No arguments, no setup, no network: each test
 # builds its own throwaway repositories under $TMPDIR and removes them again.
 #
-#     bash plugins/git-autosync/tests/run.sh
+#     bash plugins/git/tests/run.sh
 #
 # Exits non-zero if any test fails.
 set -uo pipefail

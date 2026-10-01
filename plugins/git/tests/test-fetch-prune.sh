@@ -36,7 +36,9 @@ git -C "$SANDBOX/seed" tag v1.0
 git -C "$SANDBOX/seed" push -q origin v1.0
 
 echo "--- fetch brings new refs in and prunes deleted ones ---"
-out="$(printf '{"cwd":"%s","session_id":"%s"}' "$CLONE" "$SID" | bash "$HOOKS/session-start.sh" 2>&1)"
+# Disable the attach step so this test isolates the fetch: otherwise the unified
+# hook would also attach the branch and inject the attached-mode summary below.
+out="$(printf '{"cwd":"%s","session_id":"%s"}' "$CLONE" "$SID" | GIT_PLUGIN_WORKTREE_ATTACHED_MODE_DISABLED=1 bash "$HOOKS/session-start.sh" 2>&1)"
 check "new branch fetched" "yes" \
       "$(git -C "$CLONE" rev-parse --verify --quiet refs/remotes/origin/feature-x >/dev/null && echo yes || echo no)"
 check "new tag fetched" "yes" \

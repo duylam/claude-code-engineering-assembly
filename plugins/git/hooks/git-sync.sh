@@ -3,9 +3,9 @@
 # ============================================================================
 # git-sync.sh - attach this working tree to the remote default branch
 #
-# Network-free. This plugin never fetches: the `git` plugin refreshes the
-# remote-tracking refs at SessionStart, and this script reads them. Two things
-# happen, in this order:
+# Network-free: this worker never fetches. The SessionStart hook's fetch step
+# refreshes the remote-tracking refs first - same run, same plugin - and this
+# script reads them. Two things happen, in this order:
 #
 #   1. the branch the tree is ON is fast-forwarded to <remote>/<default>, where
 #      <default> is `main` falling back to `master`      -> sync_current_branch
@@ -20,8 +20,8 @@
 #
 #   not a git repo                            -> silent, exit 10
 #   repo has no remote                        -> silent, exit 10
-#   no <default> remote-tracking ref locally  -> warn, exit 10 (git plugin fetch
-#                                                first)
+#   no <default> remote-tracking ref locally  -> warn, exit 10 (the fetch step
+#                                                has not run)
 #   tree on a detached HEAD                    -> do nothing, exit 10
 #   current branch already has the remote      -> attached, exit 0
 #   current branch behind, clean               -> fast-forward, exit 0
@@ -191,11 +191,11 @@ main() {
     # fast-forward for the life of the clone.
     ensure_worktrees_excluded "$MAIN_REPO"
 
-    # No fetch. Read the default branch from the EXISTING local remote-tracking
-    # refs, which the `git` plugin keeps fresh.
+    # No fetch here. Read the default branch from the EXISTING local
+    # remote-tracking refs, which the hook's fetch step keeps fresh.
     branch="$(resolve_default_branch "$MAIN_REPO" "remotes/$REMOTE")"
     if [[ -z "$branch" ]]; then
-        add_warning "$REMOTE has no ${BRANCH_CANDIDATES[*]} remote-tracking branch locally; the git plugin's fetch has not run"
+        add_warning "$REMOTE has no ${BRANCH_CANDIDATES[*]} remote-tracking branch locally; the fetch step has not run"
         finish_noop
     fi
 

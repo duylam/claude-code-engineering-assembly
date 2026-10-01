@@ -1,5 +1,5 @@
 #!/bin/bash
-# Shared scaffolding for the git-autosync tests.
+# Shared scaffolding for the git plugin tests.
 #
 # Every test builds throwaway repositories under $SANDBOX and runs the real
 # hook scripts against them. Nothing here touches the machine's own repos, and
@@ -24,13 +24,23 @@ check() { # check <description> <expected> <actual>
 
 yesno() { [[ -n "$1" ]] && echo yes || echo no; }
 
+# Pre-seed the worktree exclude entries so ensure_worktrees_excluded finds them
+# already present and stays a no-op - i.e. it does not emit its one-time
+# housekeeping note during a test that asserts the sync ran silently. Models the
+# steady state of a clone the plugin has already touched once.
+preexclude_worktrees() {
+    local repo="$1"
+    mkdir -p "$repo/.git/info"
+    printf '/.worktrees/\n/.claude/worktrees/\n' >> "$repo/.git/info/exclude"
+}
+
 # A fresh, empty sandbox directory named after test $1.
 #
 # `pwd -P` is required, not tidiness: on macOS $TMPDIR is /var/folders/..., a
 # symlink to /private/var/folders/..., and git reports the resolved path. A test
 # comparing a git-reported path against $SANDBOX fails on the prefix alone.
 sandbox() {
-    local dir="${TMPDIR:-/tmp}/git-autosync-test-$1.$$"
+    local dir="${TMPDIR:-/tmp}/git-test-$1.$$"
 
     rm -rf "$dir"
     mkdir -p "$dir"
