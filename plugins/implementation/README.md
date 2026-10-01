@@ -6,7 +6,7 @@ A structured workflow for taking a software development task from raw requiremen
 
 Development tasks fail most often not because the code is wrong, but because teams skip steps: they act on a requirement before it's clear, or ship a change without anyone actually driving it through the app to confirm it works. `/validate` checks whether a requirement is ready to act on.
 
-Separately, the plugin bundles **QA test automation**: the `automation-expert` agent executes manual test cases and reproduction steps step-by-step on Android (via `adb`) — useful for verifying acceptance criteria, reproducing a bug, or running a regression check once a change is made.
+Separately, the plugin bundles **QA test automation**: the `automation-expert` agent executes manual test cases and reproduction steps step-by-step on web or Android (via `adb`) — useful for verifying acceptance criteria, reproducing a bug, or running a regression check once a change is made.
 
 The plugin also bundles two **JIRA integration skills**: `atlassian-jira-ticket-retriever` pulls a ticket's title, description, comments, and attachments into a local directory for downstream processing, and `atlassian-jira-ticket-comment-creator` posts results (validation output, enrichment, QA findings) back as a ticket comment, including file attachments.
 
@@ -44,6 +44,7 @@ Posts a comment to a JIRA ticket, optionally uploading file attachments and repl
 
 Executes manual test cases and flows step-by-step — end-to-end flows, smoke tests, regression checks, bug reproduction, or acceptance criteria verification. Detects the target platform from the input:
 
+- **Web** — drives the browser using whatever browser automation skill or MCP tool is available in the session context, with each flow running in its own isolated session where the tool supports it.
 - **Android** — inspects the UI via `adb exec-out uiautomator dump` and drives the emulator via `adb shell input`.
 
 Before running any steps, it rebuilds and restarts the app under test (dev server for web, fresh APK install for Android) so results reflect the current codebase, not stale state. It inspects app state before every action, tries multiple locator fallbacks before failing a step, and reports a final PASS/FAIL table with per-step notes. Artifacts (screenshots, UI dumps) are only captured when a step explicitly asks for one, and are saved to the launching directory using a `<type>_<slug>_<timestamp>.<ext>` naming convention.
