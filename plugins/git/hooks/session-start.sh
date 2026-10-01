@@ -87,7 +87,16 @@ attach_report=""
 attach_ran=0
 if ! worktree_attach_disabled; then
     attach_report="$(bash "$SCRIPT_DIR/git-sync.sh" -C "$cwd" 2>/dev/null)"
-    [[ "$?" -eq 0 ]] && attach_ran=1
+    attach_rc=$?
+    # git-sync.sh exits 0 (pass ran) or 10 (clean no-op). Anything else is an
+    # abnormal exit - e.g. a broken plugin install failing before git-sync.sh
+    # arms its own ERR trap, which would leave no note at all. Record it so
+    # launch-status shows a signal instead of silence.
+    if [[ "$attach_rc" -eq 0 ]]; then
+        attach_ran=1
+    elif [[ "$attach_rc" -ne 10 ]]; then
+        add_warning "the attach step exited abnormally (rc $attach_rc)"
+    fi
 fi
 
 # --- Persist the combined human status --------------------------------------

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Attach-only sync on the superproject. Network-free and fast-forward only:
 # a clean branch that is behind fast-forwards, a diverged branch is left exactly
-# as it is ("ignore if it can't"), and the hook never fetches.
+# as it is ("ignore if it can't"), and git-sync.sh never fetches.
 set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -20,7 +20,7 @@ advance_origin "$SANDBOX" c2
 advance_origin "$SANDBOX" c3
 TIP="$(git -C "$SANDBOX/seed" rev-parse HEAD)"
 
-echo "--- the hook never fetches: it reads only local remote-tracking refs ---"
+echo "--- git-sync.sh never fetches: it reads only local remote-tracking refs ---"
 STALE="$(git -C "$CLONE" rev-parse origin/main)"   # still c1; remote is at c3
 out="$(bash "$HOOKS/git-sync.sh" -C "$CLONE" 2>&1)"
 check "origin/main was not advanced (no fetch)" "$STALE" "$(git -C "$CLONE" rev-parse origin/main)"
