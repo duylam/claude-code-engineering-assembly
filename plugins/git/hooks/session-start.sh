@@ -6,10 +6,7 @@
 # Two steps run in order, in this one process:
 #   1. Fetch: bring the repository's remote-tracking refs level with the remote -
 #      fetch every branch and every tag from every remote, prune stale branch and
-#      tag refs, then fast-forward the LOCAL default branch (main, falling back to
-#      master) to its refreshed remote-tracking ref when it is checked out
-#      nowhere, so it does not drift behind while the session works on another
-#      branch.                        (skip with GIT_PLUGIN_GIT_FETCH_DISABLED)
+#      tag refs.                     (skip with GIT_PLUGIN_GIT_FETCH_DISABLED)
 #   2. Attach: fast-forward the branch this tree is on to the remote's default
 #      branch using those just-fetched refs, and attach every top-level
 #      submodule.          (skip with GIT_PLUGIN_WORKTREE_ATTACHED_MODE_DISABLED)
@@ -79,13 +76,6 @@ if ! git_fetch_disabled; then
     else
         add_warning "could not fetch $REMOTE ($(capture_reason))"
     fi
-
-    # Level the local default branch to the refreshed remote-tracking ref when it
-    # is checked out nowhere, so it does not sit behind the remote while the
-    # session works on another branch. Fast-forward only (see
-    # sync_local_default_branch); safe on a stale ref, so it runs whether or not
-    # the fetch above succeeded.
-    sync_local_default_branch "$MAIN_REPO" "$REMOTE"
 fi
 
 # --- Step 2: attach the tree (unless disabled) ------------------------------
