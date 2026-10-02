@@ -120,17 +120,18 @@ check "up-to-date main is left silent" "" "$(default_note c7)"
 echo
 
 echo "--- both steps on: the local default AND the current branch reach the remote ---"
-make_clone "$SANDBOX" c9
-C9="$SANDBOX/c9"; preexclude_worktrees "$C9"
-git -C "$C9" checkout -q -b feature
+make_clone "$SANDBOX" c8
+C8="$SANDBOX/c8"; preexclude_worktrees "$C8"
+git -C "$C8" checkout -q -b feature
 advance_origin "$SANDBOX" full2
-TIP9="$(git -C "$SANDBOX/seed" rev-parse HEAD)"
-printf '{"cwd":"%s","session_id":"%s-c9"}' "$C9" "$SID" | bash "$HOOKS/session-start.sh" >/dev/null 2>&1
-check "local main leveled (fetch step)" "$TIP9" "$(git -C "$C9" rev-parse main)"
-check "current feature branch attached (attach step)" "$TIP9" "$(git -C "$C9" rev-parse HEAD)"
+TIP8="$(git -C "$SANDBOX/seed" rev-parse HEAD)"
+printf '{"cwd":"%s","session_id":"%s-c8"}' "$C8" "$SID" | bash "$HOOKS/session-start.sh" >/dev/null 2>&1
+check "local main leveled (fetch step)" "$TIP8" "$(git -C "$C8" rev-parse main)"
+check "current feature branch attached (attach step)" "$TIP8" "$(git -C "$C8" rev-parse HEAD)"
+check "the combined run recorded no warning" "no" "$(has_note c8 'Warning:')"
 # A second leveling pass has nothing left to do.
-run_fetch_step "$C9" c9b >/dev/null
-check "a second leveling run makes no local-default note" "" "$(default_note c9b)"
+run_fetch_step "$C8" c8b >/dev/null
+check "a second leveling run makes no local-default note" "" "$(default_note c8b)"
 echo
 
 report

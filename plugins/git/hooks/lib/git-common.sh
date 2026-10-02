@@ -204,13 +204,19 @@ resolve_default_branch() {
 # The output is captured, not piped into grep: a piped `grep -q` can close the
 # pipe early and hand git a SIGPIPE whose status, under `pipefail`, would read as
 # "no match" and let a checked-out branch slip through. The match is whole-line
-# and fixed-string so `main` cannot match `main-wip`. If `worktree list` itself
-# fails, this FAILS CLOSED (returns success = "checked out") so a ref it could
-# not verify is never moved.
+# and fixed-string so `main` cannot match `main-wip`.
+#
+# FAILS CLOSED: only a clean grep "no match" (exit 1) is reported as "not checked
+# out". A `worktree list` failure, or a grep internal error (exit >= 2), is
+# reported as "checked out" so a ref the state of which could not be verified is
+# never moved.
 branch_checked_out_anywhere() {
-    local repo="$1" branch="$2" list
+    local repo="$1" branch="$2" list status
     list="$(git -C "$repo" worktree list --porcelain 2>/dev/null)" || return 0
     grep -qxF "branch refs/heads/$branch" <<<"$list"
+    status=$?
+    [[ "$status" -eq 1 ]] && return 1   # clean "no match" -> not checked out
+    return 0                            # match (0) or grep error (>=2) -> assume checked out
 }
 
 # Fast-forward the LOCAL default branch (main, falling back to master) of repo $1
@@ -233,8 +239,12 @@ branch_checked_out_anywhere() {
 # it still points at <old>) and writes a reflog entry, so the move is atomic and
 # recoverable. It is NOT fast-forward-aware and does NOT guard checked-out
 # branches - the is-ancestor gate and branch_checked_out_anywhere above supply
-# both guarantees. Never fails: every outcome is a note or warning, and the
-# caller still exits 0.
+# both guarantees. The check and the CAS are not one atomic step, so a worktree
+# add racing in between is possible in theory; the window is a few calls at
+# session start and the <old> guard still prevents clobbering unrelated work, so
+# this is accepted (and reflog-recoverable), matching the attach step's own
+# check-then-act. Never fails: every outcome is a note or warning, and the caller
+# still exits 0.
 sync_local_default_branch() {
     local repo="$1" remote="$2" branch remote_sha local_sha behind
 
@@ -243,9 +253,10 @@ sync_local_default_branch() {
     git -C "$repo" show-ref --verify --quiet "refs/heads/$branch" || return 0
     ! branch_checked_out_anywhere "$repo" "$branch" || return 0
 
+    # --verify exits non-zero (-> return 0) on a missing ref, so reaching past
+    # these lines guarantees both SHAs are non-empty.
     remote_sha="$(git -C "$repo" rev-parse --verify --quiet "refs/remotes/$remote/$branch")" || return 0
     local_sha="$(git -C "$repo" rev-parse --verify --quiet "refs/heads/$branch")" || return 0
-    [[ -n "$remote_sha" && -n "$local_sha" ]] || return 0
 
     # Already contains the remote-tracking ref -> silent no-op.
     if git -C "$repo" merge-base --is-ancestor "$remote_sha" "$local_sha"; then
@@ -258,8 +269,8 @@ sync_local_default_branch() {
         return 0
     fi
 
-    behind="$(git -C "$repo" rev-list --count "$local_sha..$remote_sha" 2>/dev/null || echo '?')"
     if run_capture git -C "$repo" update-ref "refs/heads/$branch" "$remote_sha" "$local_sha"; then
+        behind="$(git -C "$repo" rev-list --count "$local_sha..$remote_sha" 2>/dev/null || echo '?')"
         add_note "fast-forwarded local $branch to $remote/$branch (${remote_sha:0:7}); it was $behind commit(s) behind"
     else
         add_warning "could not fast-forward local $branch to $remote/$branch ($(capture_reason))"

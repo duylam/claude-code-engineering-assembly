@@ -36,7 +36,9 @@ check "exit code signals a clean no-op" "10" "$rc"
 echo
 
 echo "--- SessionStart injects no summary on a detached HEAD ---"
-REMOTE_MAIN="$(git -C "$CLONE" rev-parse origin/main)"
+# The authoritative remote tip, read from the origin seed so the assertion does
+# not depend on the clone's remote-tracking ref being fetched at any point.
+REMOTE_MAIN="$(git -C "$SANDBOX/seed" rev-parse HEAD)"
 out2="$(printf '{"cwd":"%s","session_id":"det-%s"}' "$CLONE" "$$" | bash "$HOOKS/session-start.sh" 2>&1)"; rc2=$?
 check "SessionStart exits 0" "0" "$rc2"
 check "no attached-mode summary emitted" "no" \
