@@ -196,6 +196,77 @@ resolve_default_branch() {
     return 0
 }
 
+# Whether branch $2 is checked out in ANY worktree of repo $1 - the current tree
+# or any linked worktree (e.g. the primary checkout while a session runs in a
+# worktree). `git worktree list --porcelain` prints a `branch refs/heads/<name>`
+# line per worktree on a branch, and none for a detached or bare one.
+#
+# The output is captured, not piped into grep: a piped `grep -q` can close the
+# pipe early and hand git a SIGPIPE whose status, under `pipefail`, would read as
+# "no match" and let a checked-out branch slip through. The match is whole-line
+# and fixed-string so `main` cannot match `main-wip`. If `worktree list` itself
+# fails, this FAILS CLOSED (returns success = "checked out") so a ref it could
+# not verify is never moved.
+branch_checked_out_anywhere() {
+    local repo="$1" branch="$2" list
+    list="$(git -C "$repo" worktree list --porcelain 2>/dev/null)" || return 0
+    grep -qxF "branch refs/heads/$branch" <<<"$list"
+}
+
+# Fast-forward the LOCAL default branch (main, falling back to master) of repo $1
+# to its remote-tracking ref on remote $2, so it does not drift behind the remote
+# while the session works on another branch. The attach step only ever moves the
+# branch the tree is ON; this keeps the default branch current even when that is
+# not it.
+#
+# Fast-forward ONLY, and only when it is safe to move the ref without touching a
+# working tree:
+#   - no main/master remote-tracking ref           -> nothing to do
+#   - no local branch of that name                  -> nothing to do (never creates one)
+#   - the branch is checked out in ANY worktree     -> left untouched (the current
+#     tree is the attach step's job; another worktree must not be desynced)
+#   - already at or ahead of the remote ref         -> nothing to do
+#   - diverged (local has its own commits)          -> left as is, noted
+#   - clean fast-forward, checked out nowhere       -> ref advanced with update-ref
+#
+# `update-ref <ref> <new> <old>` is a compare-and-swap (it only moves the ref if
+# it still points at <old>) and writes a reflog entry, so the move is atomic and
+# recoverable. It is NOT fast-forward-aware and does NOT guard checked-out
+# branches - the is-ancestor gate and branch_checked_out_anywhere above supply
+# both guarantees. Never fails: every outcome is a note or warning, and the
+# caller still exits 0.
+sync_local_default_branch() {
+    local repo="$1" remote="$2" branch remote_sha local_sha behind
+
+    branch="$(resolve_default_branch "$repo" "remotes/$remote")"
+    [[ -n "$branch" ]] || return 0
+    git -C "$repo" show-ref --verify --quiet "refs/heads/$branch" || return 0
+    ! branch_checked_out_anywhere "$repo" "$branch" || return 0
+
+    remote_sha="$(git -C "$repo" rev-parse --verify --quiet "refs/remotes/$remote/$branch")" || return 0
+    local_sha="$(git -C "$repo" rev-parse --verify --quiet "refs/heads/$branch")" || return 0
+    [[ -n "$remote_sha" && -n "$local_sha" ]] || return 0
+
+    # Already contains the remote-tracking ref -> silent no-op.
+    if git -C "$repo" merge-base --is-ancestor "$remote_sha" "$local_sha"; then
+        return 0
+    fi
+    # Diverged: the local branch carries commits the remote ref lacks. Leave it,
+    # exactly like the attach step - never force.
+    if ! git -C "$repo" merge-base --is-ancestor "$local_sha" "$remote_sha"; then
+        add_note "local $branch has diverged from $remote/$branch; leaving it as is"
+        return 0
+    fi
+
+    behind="$(git -C "$repo" rev-list --count "$local_sha..$remote_sha" 2>/dev/null || echo '?')"
+    if run_capture git -C "$repo" update-ref "refs/heads/$branch" "$remote_sha" "$local_sha"; then
+        add_note "fast-forwarded local $branch to $remote/$branch (${remote_sha:0:7}); it was $behind commit(s) behind"
+    else
+        add_warning "could not fast-forward local $branch to $remote/$branch ($(capture_reason))"
+    fi
+    return 0
+}
+
 # Top-level submodules of the tree at $1, one `<name><TAB><path>` line each,
 # straight from the committed .gitmodules. Prints nothing when there is no
 # .gitmodules at all.

@@ -1,15 +1,18 @@
 # Git Plugin
 
 Repo-wide git housekeeping at session start, for **any** git repository. A session
-should not start on stale remote-tracking refs, a detached submodule, or a branch
-drifting behind the remote's default. This plugin fixes all three *before the first
-prompt*, with no prompting and no configuration.
+should not start on stale remote-tracking refs, a detached submodule, a local default
+branch (`main`/`master`) sitting behind the remote, or the working branch drifting
+behind the remote's default. This plugin fixes all of these *before the first prompt*,
+with no prompting and no configuration.
 
 At `SessionStart` it runs two steps, **in order, in one process**:
 
 1. **Fetch and prune.** Fetch every branch and every tag from the remote and prune
    stale branch and tag refs, so the local remote-tracking refs are aligned with the
-   remote.
+   remote. Then fast-forward the **local default branch** (`main`, falling back to
+   `master`) to its remote-tracking ref when it is checked out in no worktree, so it
+   does not drift behind while you work on another branch.
 2. **Attach the worktree.** Fast-forward the branch this tree is on to the remote's
    default branch (`main`, falling back to `master`) using the refs step 1 just
    fetched, then populate, attach, and fast-forward every **top-level** submodule to
@@ -37,6 +40,8 @@ finishes, whether `claude` opened in the current directory or in a
 - **Does nothing outside a git repo**, or in a repo with no remote.
 - **Fast-forward only.** A diverged branch (its own commits) is left exactly as is;
   nothing is ever merged, rebased, or forced. A dirty tree is reported, never moved.
+  The local default branch is leveled only when it is checked out in no worktree; one
+  checked out elsewhere (e.g. the primary checkout) is left untouched.
 - **Attach acts only when the root repo is attached** (on a branch). On a detached
   HEAD the attach step is a silent no-op.
 - **Never fails a session.** Every git failure becomes a recorded `Warning: ...`, not
@@ -64,7 +69,7 @@ No settings, no `.local.md`, nothing to configure.
 
 | Event | Script | Timeout | What it does |
 |---|---|---|---|
-| `SessionStart` (`startup`, `resume`) | `session-start.sh` | 300s | Fetches + prunes, then attaches the branch the session opened on and its submodules |
+| `SessionStart` (`startup`, `resume`) | `session-start.sh` | 300s | Fetches + prunes, levels the local default branch, then attaches the branch the session opened on and its submodules |
 
 Every run is fast-forward only, and every run exits 0. The 300s (5-minute) timeout
 follows the slowest operation the hook can reach: a first submodule clone over a slow
@@ -78,7 +83,7 @@ to turn that step into a no-op; unset/empty means enabled (the default):
 
 | Variable | Effect |
 |---|---|
-| `GIT_PLUGIN_GIT_FETCH_DISABLED` | Skip the fetch step; the attach step still runs against whatever remote-tracking refs already exist locally. |
+| `GIT_PLUGIN_GIT_FETCH_DISABLED` | Skip the fetch step (and the local default-branch leveling); the attach step still runs against whatever remote-tracking refs already exist locally. |
 | `GIT_PLUGIN_WORKTREE_ATTACHED_MODE_DISABLED` | Skip the attach step; the fetch/prune still runs. |
 
 Set both to disable the plugin entirely.
@@ -94,6 +99,16 @@ nothing on a **detached HEAD** (there is no branch to attach or reconcile).
 `git fetch --all --tags --prune --prune-tags` on the main checkout's object store.
 Brings every branch and tag level with the remote and prunes refs the remote no longer
 has, so the attach step and the rest of the session see the true remote state.
+
+It then levels the **local default branch** (`main`, falling back to `master`) to its
+refreshed remote-tracking ref, so that branch stays current even while the session works
+on another one. This is **fast-forward only** and acts only when the branch is safe to
+move without touching a working tree: a local default branch checked out in any worktree
+(the current tree — that is the attach step's job — or the primary checkout) is left
+untouched, a diverged one is left as is, and a missing one is never created. The ref is
+advanced with an atomic compare-and-swap, so it is never forced or rewound. It runs
+whether or not the fetch itself succeeded (it is safe against a stale ref) and is
+disabled together with the fetch via `GIT_PLUGIN_GIT_FETCH_DISABLED`.
 
 ### Attach — `git-sync.sh`
 
@@ -180,6 +195,7 @@ git/
     ├── lib.sh                  # throwaway-repo scaffolding + assertions
     ├── test-fetch-prune.sh
     ├── test-fetch-before-attach.sh
+    ├── test-local-default-sync.sh
     ├── test-merge-sync.sh
     ├── test-submodule-sync.sh
     ├── test-stale-session-branch.sh

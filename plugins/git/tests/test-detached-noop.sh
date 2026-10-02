@@ -1,7 +1,11 @@
 #!/bin/bash
-# The root repo must be attached for this plugin to act. On a detached HEAD it
-# does nothing at all - no fast-forward, no warning, and no attached-mode summary
-# injected into the agent's context.
+# The ATTACH step requires the root repo to be attached. On a detached HEAD the
+# attach step does nothing at all - no fast-forward of the current ref, no
+# warning, and no attached-mode summary injected into the agent's context.
+#
+# The fetch step's local default-branch leveling is independent of HEAD: `main`
+# is not the checked-out branch on a detached HEAD, so it is still fast-forwarded
+# to the remote. This test pins both the attach no-op and that leveling.
 set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -32,10 +36,15 @@ check "exit code signals a clean no-op" "10" "$rc"
 echo
 
 echo "--- SessionStart injects no summary on a detached HEAD ---"
+REMOTE_MAIN="$(git -C "$CLONE" rev-parse origin/main)"
 out2="$(printf '{"cwd":"%s","session_id":"det-%s"}' "$CLONE" "$$" | bash "$HOOKS/session-start.sh" 2>&1)"; rc2=$?
 check "SessionStart exits 0" "0" "$rc2"
 check "no attached-mode summary emitted" "no" \
       "$([[ "$out2" == *"attached mode"* ]] && echo yes || echo no)"
+# The attach step is a no-op on detached HEAD, but the fetch step's leveling is
+# not: local `main` is not checked out, so it is fast-forwarded to the remote.
+check "local main leveled to origin/main (fetch step, not attach)" \
+      "$REMOTE_MAIN" "$(git -C "$CLONE" rev-parse main)"
 echo
 
 report

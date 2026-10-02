@@ -8,9 +8,10 @@ allowed-tools: Bash(cat *)
 # Git plugin launch status
 
 At `SessionStart` the git plugin fetches every branch and tag and prunes stale
-refs, then fast-forwards the branch this tree is on to the remote default and
-attaches every top-level submodule. It records the combined result as this
-session's latest status. This skill prints that record.
+refs, levels the local default branch (main/master) to the remote when it is
+checked out nowhere, then fast-forwards the branch this tree is on to the remote
+default and attaches every top-level submodule. It records the combined result as
+this session's latest status. This skill prints that record.
 
 ## Latest status
 
@@ -20,7 +21,8 @@ cat "${TMPDIR:-/tmp}/claude-git/${CLAUDE_SESSION_ID}/git.status" 2>/dev/null \
 ```
 
 Report the block above verbatim. It is the git plugin's latest launch status for
-this session: `fetched and pruned ...` for the fetch step, `fast-forwarded ...` /
+this session: `fetched and pruned ...` for the fetch step, `fast-forwarded local
+<branch> ...` for the local default-branch leveling, `fast-forwarded ...` /
 `initialized ...` notes for the attach step, or `Warning: ...` lines when
 something failed or needs a human. Empty output means the hook ran with nothing
 to report. Do not re-run the fetch or take any action — this skill only reports.
