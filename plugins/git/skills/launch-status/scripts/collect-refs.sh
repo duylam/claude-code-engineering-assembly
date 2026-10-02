@@ -4,7 +4,10 @@
 # submodule must cost that line of the report, not the whole run.
 set -uo pipefail
 
-source "$(dirname "${BASH_SOURCE[0]}")/../../../hooks/lib/git-common.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../../../hooks/lib/git-common.sh" 2>/dev/null || {
+    echo "git: cannot load hooks/lib/git-common.sh; plugin layout is broken."
+    exit 0
+}
 
 # "<name> (<sha>)" for an attached branch, "detached HEAD at <sha>" otherwise.
 head_line() {
@@ -22,14 +25,15 @@ head_line() {
 # "<label><branch> (<sha>)" for the default branch (main, else master) found under
 # refs/$2 of repo $1; $3 is the label prefix ("origin/" or ""). "none" when absent.
 default_line() {
-    local repo="$1" namespace="$2" prefix="$3" name
+    local repo="$1" namespace="$2" prefix="$3" name sha
 
     name="$(resolve_default_branch "$repo" "$namespace")"
     if [[ -z "$name" ]]; then
         echo "none (no ${prefix}main or ${prefix}master)"
         return
     fi
-    echo "${prefix}${name} ($(git -C "$repo" rev-parse --short "refs/$namespace/$name" 2>/dev/null))"
+    sha="$(git -C "$repo" rev-parse --short "refs/$namespace/$name" 2>/dev/null)" || sha=""
+    echo "${prefix}${name} (${sha:-unreadable})"
 }
 
 root="$(git rev-parse --show-toplevel 2>/dev/null)" || {
@@ -59,6 +63,6 @@ while IFS=$'\t' read -r _name path; do
         echo "  $path: not initialised"
     fi
 done < <(submodule_entries "$root")
-[[ "$found" -eq 1 ]] || echo "  (none)"
+[[ "$found" -ne 0 ]] || echo "  (none)"
 
 exit 0

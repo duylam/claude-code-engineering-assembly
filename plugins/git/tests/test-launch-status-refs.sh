@@ -50,7 +50,7 @@ git -C "$CLONE/tracked" checkout -q --detach
 out="$(run "$CLONE")"
 check "detached submodule" "  tracked: detached HEAD at $(sha "$CLONE/tracked" HEAD)" "$(grep '^  tracked:' <<<"$out")"
 git -C "$CLONE" submodule deinit -q -f tracked 2>/dev/null
-rm -rf "$CLONE/tracked/.git" "$CLONE/.git/modules/tracked"
+rm -rf "$CLONE/.git/modules/tracked"
 out="$(run "$CLONE")"
 check "uninitialised submodule" "  tracked: not initialised" "$(grep '^  tracked:' <<<"$out")"
 echo
@@ -78,6 +78,12 @@ out="$(run "$SANDBOX/plain")"
 check "no remote" "  remote default:     none (no remote configured)" "$(grep 'remote default' <<<"$out")"
 check "no local default" "  local default:      none (no main or master)" "$(grep 'local default' <<<"$out")"
 check "no submodules" "  (none)" "$(grep '(none)' <<<"$out")"
+echo
+
+echo "--- repository with no commits ---"
+git init -q -b work "$SANDBOX/unborn"
+out="$(run "$SANDBOX/unborn")"
+check "no commits yet" "  attached branch:    no commits yet" "$(grep 'attached branch' <<<"$out")"
 echo
 
 echo "--- outside a repository ---"
