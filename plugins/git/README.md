@@ -160,6 +160,11 @@ result and the attach report, and is not shown to the agent. To read it yourself
 /git:launch-status
 ```
 
+It also prints the current refs, read live with no fetch: the superproject's attached
+branch and commit id, the commit id of `origin/main` (falling back to `origin/master`),
+the commit id of the local `main` (falling back to `master`), and each top-level
+submodule's attached branch and commit id. `scripts/collect-refs.sh` produces this block.
+
 ## The `recap` skill
 
 `/git:recap` reports, for the superproject and each top-level submodule, the current
@@ -186,7 +191,9 @@ git/
 │   ├── ensure-submodules.sh    # worker: populate (one level) + attach + fast-forward submodules
 │   └── lib/git-common.sh       # shared helpers (repo/remote resolution, status, reporting)
 ├── skills/
-│   ├── launch-status/SKILL.md  # read-only: this session's latest fetch + attach status
+│   ├── launch-status/
+│   │   ├── SKILL.md            # read-only: current refs + this session's latest fetch + attach status
+│   │   └── scripts/collect-refs.sh
 │   └── recap/
 │       ├── SKILL.md
 │       └── scripts/collect-git-state.sh
